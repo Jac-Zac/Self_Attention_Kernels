@@ -1,5 +1,6 @@
 #include "include/cmhsa_forward.h"
 #include "include/macros.hpp"
+#include "include/timing.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -21,7 +22,12 @@ int main(int argc, char *argv[]) {
   }
 
   // Call the cmhsa kernel for CPU
+  struct timespec start, end;
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
   cmhsa_forward_cpu(a, b, c, n);
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
+  unsigned long long delta_ns = GET_DELTAT(start, end);
+  printf("CPU time: %llu ns\n", delta_ns);
 
   printf("Sum results:\n");
   for (int i = 0; i < n; i++) {

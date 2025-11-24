@@ -39,7 +39,3 @@ Rember to pin the memory if you want to show that
 ### More suggestions
 
 - Additionally you can use GDB with core dumps very useful to see what is happening to the program
-
-# Good template to write
-
-This is my project -> https://typst.app/project/pkaZjgATqjobNTjGKDA4U3

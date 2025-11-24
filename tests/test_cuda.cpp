@@ -1,9 +1,8 @@
 #include "../include/cmhsa_forward.h"
+#include "reference.hpp"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-// FIX: This is just a placeholder to implement
 
 int main() {
   const int n = 5;
@@ -16,8 +15,10 @@ int main() {
   for (int i = 0; i < n; i++) {
     a[i] = i * 1.0f;
     b[i] = i * 2.0f;
-    expected[i] = a[i] + b[i];
   }
+
+  // Compute expected using reference
+  cmhsa_reference(a, b, expected, n);
 
   // Call the function
   cmhsa_forward_cuda(a, b, c, n);

@@ -1,4 +1,5 @@
 #include "../include/cmhsa_forward.h"
+#include "reference.hpp"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,10 +15,12 @@ int main() {
   for (int i = 0; i < n; i++) {
     a[i] = i * 1.0f;
     b[i] = i * 2.0f;
-    expected[i] = a[i] + b[i];
   }
 
   // Call the function
+  cmhsa_reference(a, b, expected, n);
+
+  // Call the function to test
   cmhsa_forward_cpu(a, b, c, n);
 
   // Check correctness

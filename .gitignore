@@ -1,5 +1,5 @@
-# Prerequisites
-*.d
+# PDFs 
+*.pdf
 
 # Compiled Object files
 *.slo
