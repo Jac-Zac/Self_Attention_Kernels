@@ -1,4 +1,4 @@
-# CMHSA = Causal Multi-Head Self-Attention
+# Causal Multi-Head Self-Attention (CMHSA )
 
 > [!WARNING]
 > Currently this repo is just a placeholder for future work

@@ -5,6 +5,6 @@ void cmhsa_forward_cpu(const float *__restrict__ A, const float *__restrict__ B,
 
 #pragma ivdep
   for (size_t i = 0; i < N; i++) {
-    Out[i] = A[i] + B[i];
+    Out[i] = A[i] + B[i] + 1;
   }
 }
