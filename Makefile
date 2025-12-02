@@ -7,6 +7,10 @@ NVCC = nvcc
 OFLAG = -O3
 MARCH = -march=native
 
+# Additional flags
+# for math
+# -lm
+
 # Other flags
 OPENMP = -fopenmp
 

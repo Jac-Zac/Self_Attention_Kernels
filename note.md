@@ -10,6 +10,11 @@
 - [CUDA notes video](https://www.youtube.com/watch?v=86FAWCzIe_4&t=32683s) also has more discussion on matrix multiply
 - [More Flash attention good video](https://www.youtube.com/watch?v=NBqHVjyDFfQ) flash attention at 1 hour 19
 
+More videos:
+
+- [How to write a fast Softmax kernel](https://www.youtube.com/watch?v=IpHjDoW4ffw)
+- Intro to GPU programming [entire playlist ep 1](https://www.youtube.com/watch?v=c8mQYGbT310)
+
 #### Note:
 
 First write the synch threads version before proceeding with the softmax
@@ -39,3 +44,7 @@ Rember to pin the memory if you want to show that
 ### More suggestions
 
 - Additionally you can use GDB with core dumps very useful to see what is happening to the program
+
+## Additional work
+
+Try implmeenting the different version with `fences` locks etc to do `RING` communication -> In ring attention. And try different hints also perhaps for the fence
