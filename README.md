@@ -1,14 +1,21 @@
-# Causal Multi-Head Self-Attention (CMHSA)
+# CMHSA (Causal Multi-Head Self-Attention)
 
-> [!WARNING]
-> Currently this repo is just a placeholder for future work
+Simple, learning-focused kernels:
+- Single-thread CPU
+- Multi-core CPU (OpenMP)
+- CUDA (stub)
 
-A repo that servers for learning purposes and implements different **CMHSA** faster and faster
+## Build
+- Single: `make single`
+- Multi: `make multi`
+- CUDA: `make cuda`
+- Choose version: `make single VERSION=v0`
+- Choose output name/extension: `make single EXEC=cmhsa.out`
 
-> [!NOTE]
-> The implementation even though it is in cpp to be more extensible in the future it will mostly be using c constructs.
-> This is because I believe it would be the best way to make the code as easy as possible to follow and good for learning purposes
+## Run
+- `./cmhsa [N]` (default `N=1024`)
+- Runtime prints: `backend`, `version`, `n`, timing in seconds
 
-- Single thread implementation
-- Multi thread implementation
-- CUDA implementation
+## Test
+- `make test` (runs single+multi for all versions)
+- CUDA tests not implemented yet

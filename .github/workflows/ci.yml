@@ -14,4 +14,4 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run all tests
-        run: make test_all
+        run: make test

@@ -2,97 +2,74 @@
 GCC = g++
 NVCC = nvcc
 
-# =================== COMPILATION FLAGS =================== 
-# Common optimization flags
-OFLAG = -O3
-MARCH = -march=native
-
-# Additional flags
-# for math
-# -lm
-
-# Other flags
+# Flags
+CFLAGS = -Wall -Wextra -O3
 OPENMP = -fopenmp
 
-# Version flag (set VERSION to select kernel version, e.g., v0)
 VERSION ?= v0
-
-# Debug flag (set DEBUG=1 to enable debug)
 DEBUG ?= 0
 ifeq ($(DEBUG),1)
 DEBUG_FLAGS = -DDEBUG -g
-GCC_DEBUG_EXTRA = -fopt-info-all
 else
 DEBUG_FLAGS =
-GCC_DEBUG_EXTRA =
 endif
 
-# Combine flags for GCC
-GCC_CFLAGS = $(OFLAG) $(MARCH) $(DEBUG_FLAGS) $(GCC_DEBUG_EXTRA)
-GCC_LDFLAGS =
+# GCC/NVCC combined flags
+GCC_CFLAGS = $(CFLAGS) $(DEBUG_FLAGS)
+NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) -DUSE_CUDA
 
-# Combine flags for NVCC
-NVCC_CFLAGS = $(OFLAG) $(DEBUG_FLAGS) -DUSE_CUDA
-NVCC_LDFLAGS =
+# Targets (unified executable name 'cmhsa.out')
+EXEC ?= cmhsa.out
 
-# =================== COMPILATION OPTIONS =================== 
-
-# =================== TARGETS =================== 
 single:
-	$(GCC) $(GCC_CFLAGS) $(GCC_LDFLAGS) -o cmhsa_single_$(VERSION) main.cpp kernels/single_thread/$(VERSION).cpp
+	$(GCC) $(GCC_CFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
 
 multi:
-	$(GCC) $(GCC_CFLAGS) $(GCC_LDFLAGS) $(OPENMP) -o cmhsa_multi_$(VERSION) main.cpp kernels/multi_core_cpu/$(VERSION).cpp
+	$(GCC) $(GCC_CFLAGS) $(OPENMP) -DBACKEND=\"multi\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/multi_core_cpu/$(VERSION).cpp
 
 cuda:
-	$(NVCC) $(NVCC_CFLAGS) $(NVCC_LDFLAGS) -o cmhsa_cuda_$(VERSION) main_cuda.cpp kernels/cuda/$(VERSION).cu
+	$(NVCC) $(NVCC_CFLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/cuda/$(VERSION).cu
 
-# =================== TEST TARGETS =================== 
-test_single:
-	$(GCC) $(GCC_CFLAGS) $(GCC_LDFLAGS) -o test_single tests/test.cpp kernels/single_thread/$(VERSION).cpp && ./test_single && echo "check: PASS" || (echo "check: FAIL" && exit 1)
-
-test_multi:
-	$(GCC) $(GCC_CFLAGS) $(GCC_LDFLAGS) $(OPENMP) -o test_multi tests/test.cpp kernels/multi_core_cpu/$(VERSION).cpp && ./test_multi && echo "check: PASS" || (echo "check: FAIL" && exit 1)
-
-test_cuda:
-	$(NVCC) $(NVCC_CFLAGS) $(NVCC_LDFLAGS) -o test_cuda tests/test_cuda.cpp kernels/cuda/$(VERSION).cu && ./test_cuda && echo "check: PASS" || (echo "check: FAIL" && exit 1)
-
-# =================== ADDITION TARGETS ===================
-
-test_all:
+# Unified test target: builds 'cmhsa_test' and runs one at a time
+# CUDA tests are not implemented yet
+test:
 	@for f in kernels/single_thread/*.cpp; do \
 		v=$$(basename $$f .cpp); \
 		echo "Testing single_thread $$v"; \
-		$(MAKE) VERSION=$$v test_single; \
+		$(GCC) $(GCC_CFLAGS) -o cmhsa_test tests/test.cpp kernels/single_thread/$$v.cpp && ./cmhsa_test || exit 1; \
 	done
 	@for f in kernels/multi_core_cpu/*.cpp; do \
 		v=$$(basename $$f .cpp); \
 		echo "Testing multi_core_cpu $$v"; \
-		$(MAKE) VERSION=$$v test_multi; \
+		$(GCC) $(GCC_CFLAGS) $(OPENMP) -o cmhsa_test tests/test.cpp kernels/multi_core_cpu/$$v.cpp && ./cmhsa_test || exit 1; \
 	done
+	@echo "CUDA tests not implemented yet"
 
-  # TODO:
-  # Do the same thing also for cuda when implemented
+	# Clean everything after
 	make clean
 
-test: test_all
 
-# Default target (single)
+# Convenience
 all: single
 
-# All versions target (build and test all versions)
-VERSIONS = v0 v1 v2 final
-all_versions:
-	@for v in $(VERSIONS); do \
-		if [ -d kernels/single_thread/$$v ] && [ -d kernels/multi_core_cpu/$$v ] && [ -d kernels/cuda/$$v ]; then \
-			echo "Building and testing version $$v"; \
-			$(MAKE) VERSION=$$v single multi cuda test_single test_multi; \
-		fi; \
-	done
+# Help
+help:
+	@echo "Usage: make <target> [VARIABLES]"
+	@echo ""
+	@echo "Targets:"
+	@echo "  single   Build single-thread backend (VERSION?=v0)"
+	@echo "  multi    Build multi-core backend (OpenMP)"
+	@echo "  cuda     Build CUDA backend (kernel stubbed)"
+	@echo "  test     Run tests for single+multi across all versions"
+	@echo "  clean    Remove build/test artifacts"
+	@echo ""
+	@echo "Variables:"
+	@echo "  VERSION  Kernel version to use (e.g., v0, v1). Default v0"
+	@echo "  DEBUG=1  Enable debug build and -DDEBUG"
 
-# Clean target
+# Clean
 clean:
-	rm -rf cmhsa_* test_single test_multi test_cuda 
+	rm -rf cmhsa*
 	rm -rf *.dSYM
 
-.PHONY: all single multi cuda tests test_single test_multi test_cuda clean all_versions
+.PHONY: all single multi cuda test clean help
