@@ -1,31 +1,53 @@
-# Compilers
-GCC = g++
+# NOTE: If user did NOT explicitly pass CXX=...
+# set our own default and override the environment
+ifneq ($(origin CXX),command line)
+	# Compilers
+  override CXX := g++
+endif
+
 NVCC = nvcc
 
-# Flags
-CFLAGS = -Wall -Wextra -O3
+CFLAGS = -O3
 OPENMP = -fopenmp
+
+# Auto-select warning flags based on compiler
+# Default warnings (GCC)
+WARN_GCC = -Wall -Wextra -Wpedantic
+# Clang-specific recommended warnings
+WARN_CLANG = -Wall -Wextra -Wpedantic -Wconversion
 
 VERSION ?= v0
 DEBUG ?= 0
+
 ifeq ($(DEBUG),1)
 DEBUG_FLAGS = -DDEBUG -g
+WARN_GCC += -fopt-info-all
+# WARN_CLANG += -Rpass=.* -Rpass-missed=.* -Rpass-analysis=.*
+WARN_CLANG += -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
 else
 DEBUG_FLAGS =
 endif
 
-# GCC/NVCC combined flags
-GCC_CFLAGS = $(CFLAGS) $(DEBUG_FLAGS)
+# Choose warning set
+ifeq ($(CXX),clang++)
+  CXX_WARN = $(WARN_CLANG)
+else
+	# GCC alternative
+  CXX_WARN = $(WARN_GCC)
+endif
+
+# C++/NVCC combined flags
+CXXFLAGS = $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS)
 NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) -DUSE_CUDA
 
 # Targets (unified executable name 'cmhsa.out')
 EXEC ?= cmhsa.out
 
 single:
-	$(GCC) $(GCC_CFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
+	$(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
 
 multi:
-	$(GCC) $(GCC_CFLAGS) $(OPENMP) -DBACKEND=\"multi\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/multi_core_cpu/$(VERSION).cpp
+	$(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"multi\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/multi_core_cpu/$(VERSION).cpp
 
 cuda:
 	$(NVCC) $(NVCC_CFLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/cuda/$(VERSION).cu
@@ -36,12 +58,12 @@ test:
 	@for f in kernels/single_thread/*.cpp; do \
 		v=$$(basename $$f .cpp); \
 		echo "Testing single_thread $$v"; \
-		$(GCC) $(GCC_CFLAGS) -o cmhsa_test tests/test.cpp kernels/single_thread/$$v.cpp && ./cmhsa_test || exit 1; \
+		$(CXX) $(CXXFLAGS) -o cmhsa_test tests/test.cpp kernels/single_thread/$$v.cpp && ./cmhsa_test || exit 1; \
 	done
 	@for f in kernels/multi_core_cpu/*.cpp; do \
 		v=$$(basename $$f .cpp); \
 		echo "Testing multi_core_cpu $$v"; \
-		$(GCC) $(GCC_CFLAGS) $(OPENMP) -o cmhsa_test tests/test.cpp kernels/multi_core_cpu/$$v.cpp && ./cmhsa_test || exit 1; \
+		$(CXX) $(CXXFLAGS) $(OPENMP) -o cmhsa_test tests/test.cpp kernels/multi_core_cpu/$$v.cpp && ./cmhsa_test || exit 1; \
 	done
 	@echo "CUDA tests not implemented yet"
 
@@ -66,6 +88,7 @@ help:
 	@echo "Variables:"
 	@echo "  VERSION  Kernel version to use (e.g., v0, v1). Default v0"
 	@echo "  DEBUG=1  Enable debug build and -DDEBUG"
+	@echo "  CXX=clang++  Use clang++ instead of g++"
 
 # Clean
 clean:

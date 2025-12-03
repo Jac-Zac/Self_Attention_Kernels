@@ -1,5 +1,6 @@
 #pragma once
 
+#include "macros.hpp"
 #include <stddef.h>
 
 void cmhsa_forward_cpu(const float *__restrict__ A, const float *__restrict__ B,

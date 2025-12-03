@@ -1,5 +1,9 @@
 # Exercises to do
 
+> Remember to check with the assembly when the compiler says it is vectorizing
+
+- I don't trust it with floating point numbers
+
 ### Attention
 
 - Implementation: https://github.com/HicrestLaboratory/Open-VIT-bench
