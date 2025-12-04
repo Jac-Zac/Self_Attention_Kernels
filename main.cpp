@@ -1,8 +1,12 @@
 #include "include/cmhsa_forward.h"
+#include "include/io.hpp"
 #include "include/macros.hpp"
+#include "include/parser.hpp"
 #include "include/timing.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Default values that are resolved when using make ...
 #ifndef BACKEND
@@ -13,59 +17,104 @@
 #endif
 
 int main(int argc, char *argv[]) {
-  // Simple CLI: optional positional N, default 1024
-  size_t n = 1024ULL;
-  if (argc > 1) {
-    char *end = NULL;
-    unsigned long long v = strtoull(argv[1], &end, 10);
-    if (!end || *end != '\0' || v == 0ULL) {
-      fprintf(stderr, "Error: invalid N; pass a positive integer\n");
-      return 1;
-    }
-    n = (size_t)v;
+  RunConfig cfg;
+
+  // Parse aurgemnts into a struct
+  if (parse_args(argc, argv, &cfg) != 0) {
+    return 1; // invalid flags or usage
   }
 
-  printf("backend=%s version=%s n=%zu\n", BACKEND, VERSION_STR, n);
+  // Get the parsed arguments
+  size_t batch = cfg.batch;
+  size_t n_heads = cfg.n_heads;
+  size_t seq_len = cfg.seq_len;
+  size_t head_dim = cfg.head_dim;
+  unsigned seed = cfg.seed;
+  int validate = cfg.validate;
+  const char *validate_dir = cfg.validate_dir;
 
-  float *a = (float *)malloc(sizeof(float) * n);
-  float *b = (float *)malloc(sizeof(float) * n);
-  float *c = (float *)malloc(sizeof(float) * n);
+  printf("backend=%s version=%s\n", BACKEND, VERSION_STR);
+  printf("batch=%zu n_heads=%zu seq_len=%zu head_dim=%zu\n", batch, n_heads,
+         seq_len, head_dim);
 
-  if (!a || !b || !c) {
+  // Setup dimensions
+  AttentionDims dims = {batch, n_heads, seq_len, head_dim};
+
+  // Calculate buffer sizes
+  size_t qkv_size = batch * n_heads * seq_len * head_dim;
+  size_t stats_size = batch * n_heads * seq_len;
+
+  // Allocate input/output tensors
+  float *Q = (float *)malloc(sizeof(float) * qkv_size);
+  float *K = (float *)malloc(sizeof(float) * qkv_size);
+  float *V = (float *)malloc(sizeof(float) * qkv_size);
+  float *out = (float *)malloc(sizeof(float) * qkv_size);
+
+  // Allocate workspace buffers
+  float *softmax_lse = (float *)malloc(sizeof(float) * stats_size);
+  float *softmax_max = (float *)malloc(sizeof(float) * stats_size);
+
+  // Check allocations
+  if (!Q || !K || !V || !out || !softmax_lse || !softmax_max) {
     fprintf(stderr, "Error: memory allocation failed\n");
-    free(a);
-    free(b);
-    free(c);
+    free(Q);
+    free(K);
+    free(V);
+    free(out);
+    free(softmax_lse);
+    free(softmax_max);
     return 1;
   }
 
-  // Initialize with simple initialization strategy
-  for (size_t i = 0; i < n; i++) {
-    a[i] = (float)i;
-    b[i] = (float)i;
+  // Initialize with random small values (typical for attention)
+  srand(seed); // Fixed seed for reproducibility
+  for (size_t i = 0; i < qkv_size; i++) {
+    Q[i] = ((float)rand() / (float)RAND_MAX) * 0.1f - 0.05f; // [-0.05, 0.05]
+    K[i] = ((float)rand() / (float)RAND_MAX) * 0.1f - 0.05f;
+    V[i] = ((float)rand() / (float)RAND_MAX) * 0.5f; // [0, 0.5]
   }
 
-  for (size_t i = 0; i < n; i++) {
-    DEBUG_PRINT("Value of a[%zu] = %f\n", i, a[i]);
-    DEBUG_PRINT("Value of b[%zu] = %f\n", i, b[i]);
+  VERBOSE_PRINT("Sample Q values (first head, first token):\n");
+  for (size_t d = 0; d < head_dim && d < 5; d++) {
+    VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, Q[d]);
   }
+
+  // Compute attention scale (1/sqrt(head_dim))
+  float scale = 1.0f / sqrtf((float)head_dim);
+
+  printf("\nRunning attention forward pass...\n");
+  printf("Scale factor: %f\n", scale);
 
   // Call the cmhsa kernel for CPU with wall-clock timing
   struct timespec start, end;
   NOW(start);
-  cmhsa_forward_cpu(a, b, c, n);
+  cmhsa_forward_cpu(Q, K, V, out, softmax_lse, softmax_max, dims, scale);
   NOW(end);
 
-  print_timing("CPU", ns_diff(start, end));
+  print_timing("CPU attention forward", ns_diff(start, end));
 
-  DEBUG_PRINT("Sum results:\n");
-  for (size_t i = 0; i < n; i++) {
-    DEBUG_PRINT("c[%zu] = %f\n", i, c[i]);
+  // Optional sample outputs
+  VERBOSE_PRINT("\nSample output values (first head, first token):\n");
+  for (size_t d = 0; d < head_dim && d < 5; d++) {
+    VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, out[d]);
   }
 
-  free(a);
-  free(b);
-  free(c);
+  // Validation mode: write artifacts for Python and exit
+  if (validate) {
+    struct Outputs outputs = {
+        Q, K, V, out, softmax_lse, softmax_max, qkv_size, stats_size, 0};
 
+    write_validation_artifacts(validate_dir, &cfg, &outputs);
+  }
+
+  // Cleanup
+  free(Q);
+  free(K);
+  free(V);
+  free(out);
+  free(softmax_lse);
+  free(softmax_max);
+
+  printf("\nCompleted successfully!\n");
   return 0;
 }

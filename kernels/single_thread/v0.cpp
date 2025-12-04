@@ -1,12 +1,10 @@
 #include "../../include/cmhsa_forward.h"
 
-void cmhsa_forward_cpu(const float *__restrict__ A, const float *__restrict__ B,
-                       float *__restrict__ Out, size_t N) {
+void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
+                       const float *RESTRICT V, float *RESTRICT out,
+                       float *RESTRICT softmax_lse, float *RESTRICT softmax_max,
+                       const AttentionDims dims, const float scale) {
 
-// Tell the compiler to not vectorize
-#pragma clang loop vectorize(disable)
-#pragma GCC loop vectorize(disable)
-  for (size_t i = 0; i < N; i++) {
-    Out[i] = A[i] + B[i];
-  }
+  // Tell the compiler to not vectorize
+  // TODO: Implmeent this
 }

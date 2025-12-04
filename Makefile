@@ -12,12 +12,13 @@ OPENMP = -fopenmp
 
 # Auto-select warning flags based on compiler
 # Default warnings (GCC)
-WARN_GCC = -Wall -Wextra -Wpedantic
+WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic
 # Clang-specific recommended warnings
 WARN_CLANG = -Wall -Wextra -Wpedantic -Wconversion
 
 VERSION ?= v0
 DEBUG ?= 0
+VERBOSE ?= 0
 
 ifeq ($(DEBUG),1)
 DEBUG_FLAGS = -DDEBUG -g
@@ -26,6 +27,12 @@ WARN_GCC += -fopt-info-all
 WARN_CLANG += -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
 else
 DEBUG_FLAGS =
+endif
+
+ifeq ($(VERBOSE),1)
+VERBOSE_FLAGS = -DVERBOSE
+else
+VERBOSE_FLAGS =
 endif
 
 # Choose warning set
@@ -37,8 +44,8 @@ else
 endif
 
 # C++/NVCC combined flags
-CXXFLAGS = $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS)
-NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) -DUSE_CUDA
+CXXFLAGS = $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
+NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA
 
 # Targets (unified executable name 'cmhsa.out')
 EXEC ?= cmhsa.out
@@ -52,24 +59,13 @@ multi:
 cuda:
 	$(NVCC) $(NVCC_CFLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/cuda/$(VERSION).cu
 
-# Unified test target: builds 'cmhsa_test' and runs one at a time
-# CUDA tests are not implemented yet
+# Test target: build main (single-thread backend) and validate against PyTorch
+# Float32-only; main writes artifacts to python_test/ and Python cleans them afterward
+#
+# TODO: In the future this should test all of the available kernels instaed
 test:
-	@for f in kernels/single_thread/*.cpp; do \
-		v=$$(basename $$f .cpp); \
-		echo "Testing single_thread $$v"; \
-		$(CXX) $(CXXFLAGS) -o cmhsa_test tests/test.cpp kernels/single_thread/$$v.cpp && ./cmhsa_test || exit 1; \
-	done
-	@for f in kernels/multi_core_cpu/*.cpp; do \
-		v=$$(basename $$f .cpp); \
-		echo "Testing multi_core_cpu $$v"; \
-		$(CXX) $(CXXFLAGS) $(OPENMP) -o cmhsa_test tests/test.cpp kernels/multi_core_cpu/$$v.cpp && ./cmhsa_test || exit 1; \
-	done
-	@echo "CUDA tests not implemented yet"
-
-	# Clean everything after
-	make clean
-
+	$(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
+	python python_tests/validate_with_torch.py --bin ./$(EXEC) --batch 1 --n_heads 1 --seq_len 32 --head_dim 64 --seed 1337
 
 # Convenience
 all: single
@@ -82,17 +78,19 @@ help:
 	@echo "  single   Build single-thread backend (VERSION?=v0)"
 	@echo "  multi    Build multi-core backend (OpenMP)"
 	@echo "  cuda     Build CUDA backend (kernel stubbed)"
-	@echo "  test     Run tests for single+multi across all versions"
+	@echo "  test     Build test and validate against PyTorch (float32)"
 	@echo "  clean    Remove build/test artifacts"
 	@echo ""
 	@echo "Variables:"
-	@echo "  VERSION  Kernel version to use (e.g., v0, v1). Default v0"
-	@echo "  DEBUG=1  Enable debug build and -DDEBUG"
+	@echo "  VERSION   Kernel version to use (e.g., v0, v1). Default v0"
+	@echo "  DEBUG=1   Enable debug build and -DDEBUG"
+	@echo "  VERBOSE=1 Enable verbose prints (-DVERBOSE)"
 	@echo "  CXX=clang++  Use clang++ instead of g++"
 
 # Clean
 clean:
 	rm -rf cmhsa*
 	rm -rf *.dSYM
+	rm -rf python_test
 
 .PHONY: all single multi cuda test clean help
