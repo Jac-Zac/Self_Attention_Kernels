@@ -6,7 +6,6 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 // Default values that are resolved when using make ...
 #ifndef BACKEND

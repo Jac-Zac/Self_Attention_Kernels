@@ -45,3 +45,6 @@ Thumbs.db
 
 # macOS debug symbols
 **.dSYM
+
+# Additional things
+.clangd

@@ -91,6 +91,5 @@ help:
 clean:
 	rm -rf cmhsa*
 	rm -rf *.dSYM
-	rm -rf python_test
 
 .PHONY: all single multi cuda test clean help
