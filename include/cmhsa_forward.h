@@ -84,8 +84,4 @@ void cmhsa_forward_cuda(
     float *RESTRICT softmax_max, // [batch, n_heads, seq_len]
     const AttentionDims dims, const float scale);
 
-// HACK: Currently just a template
-void cmhsa_forward_cuda(const float *__restrict__ A,
-                        const float *__restrict__ B, float *__restrict__ Out,
-                        size_t N);
 #endif

@@ -28,7 +28,7 @@ inline void write_meta(const char *path, const RunConfig *cfg) {
   }
   fprintf(f,
           "{\n  \"batch\": %zu,\n  \"n_heads\": %zu,\n  \"seq_len\": %zu,\n  "
-          "\"head_dim\": %zu,\n  \"dtype\": \"float32\",\n  \"seed\": %u  }\n",
+          "\"head_dim\": %zu,\n  \"dtype\": \"float32\",\n  \"seed\": %u\n}\n",
           cfg->batch, cfg->n_heads, cfg->seq_len, cfg->head_dim, cfg->seed);
   fclose(f);
 }
@@ -37,7 +37,10 @@ inline void write_validation_artifacts(const char *dir, const RunConfig *cfg,
                                        const struct Outputs *out) {
   char cmd[256];
   snprintf(cmd, sizeof(cmd), "mkdir -p %s", dir);
-  system(cmd);
+  int ret = system(cmd);
+  if (ret != 0) {
+    fprintf(stderr, "Warning: mkdir command returned %d\n", ret);
+  }
 
   char path[256];
   snprintf(path, sizeof(path), "%s/q.bin", dir);

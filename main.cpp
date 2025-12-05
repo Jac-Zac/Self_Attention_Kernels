@@ -18,7 +18,7 @@
 int main(int argc, char *argv[]) {
   RunConfig cfg;
 
-  // Parse aurgemnts into a struct
+  // Parse arguments into a struct
   if (parse_args(argc, argv, &cfg) != 0) {
     return 1; // invalid flags or usage
   }
