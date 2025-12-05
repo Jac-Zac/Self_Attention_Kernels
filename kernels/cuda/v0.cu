@@ -1,12 +1,36 @@
 #include "../../include/cmhsa_forward.h"
 
-__global__ void cmhsa_forward_kernel(const float *A, const float *B, float *Out,
-                                     size_t N) {
+__global__ void cmhsa_forward_kernel(const float *Q, const float *K,
+                                     const float *V, float *out,
+                                     float *softmax_lse, float *softmax_max,
+                                     size_t batch, size_t n_heads,
+                                     size_t seq_len, size_t head_dim,
+                                     float scale) {
   // WARNING: Not implemented yet
+  (void)Q;
+  (void)K;
+  (void)V;
+  (void)out;
+  (void)softmax_lse;
+  (void)softmax_max;
+  (void)batch;
+  (void)n_heads;
+  (void)seq_len;
+  (void)head_dim;
+  (void)scale;
 }
 
-void cmhsa_forward_cuda(const float *__restrict__ A,
-                        const float *__restrict__ B, float *__restrict__ Out,
-                        size_t N) {
+void cmhsa_forward_cuda(const float *RESTRICT Q, const float *RESTRICT K,
+                        const float *RESTRICT V, float *RESTRICT out,
+                        float *RESTRICT softmax_lse, float *RESTRICT softmax_max,
+                        const AttentionDims dims, const float scale) {
   // WARNING: Not implemented yet
+  (void)Q;
+  (void)K;
+  (void)V;
+  (void)out;
+  (void)softmax_lse;
+  (void)softmax_max;
+  (void)dims;
+  (void)scale;
 }

@@ -48,3 +48,4 @@ Thumbs.db
 
 # Additional things
 .clangd
+_codeql_detected_source_root

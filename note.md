@@ -43,7 +43,7 @@ Rember to pin the memory if you want to show that
 
 - Try **CuPY** to compare performances with that too and also with torch
 
-- Compute it multiple times for an average and through away the first 3 for example for both compilation and warmup
+- Compute it multiple times for an average and throw away the first 3 for example for both compilation and warmup
 
 ### More suggestions
 
@@ -51,4 +51,4 @@ Rember to pin the memory if you want to show that
 
 ## Additional work
 
-Try implmeenting the different version with `fences` locks etc to do `RING` communication -> In ring attention. And try different hints also perhaps for the fence
+Try implementing the different version with `fences` locks etc to do `RING` communication -> In ring attention. And try different hints also perhaps for the fence

@@ -26,7 +26,7 @@ Simple, learning-focused kernels:
 ## Test
 
 - `make test` runs the lightweight validation program that uses the same parser.
-- Artifacts written under `python_test/`: `q.bin`, `k.bin`, `v.bin`, `out.bin`, `meta.json`.
+- Artifacts written under `python_tests/`: `q.bin`, `k.bin`, `v.bin`, `out.bin`, `meta.json`.
 - CUDA tests not implemented yet.
 
 ## Project Structure
@@ -36,7 +36,6 @@ Simple, learning-focused kernels:
   - `single_thread/`: CPU single-thread versions
   - `multi_core_cpu/`: CPU OpenMP versions
   - `cuda/`: CUDA stubs/kernels
-- `tests/`: C++ validation/test programs
 - `python_tests/`: Torch validation script which does checks against torch version
 - `main.cpp`: runnable example using the kernels
 - `Makefile`: build targets (single, multi, cuda)
