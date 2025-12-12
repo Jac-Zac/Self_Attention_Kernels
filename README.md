@@ -29,6 +29,12 @@ Simple, learning-focused kernels:
 - Artifacts written under `python_tests/`: `q.bin`, `k.bin`, `v.bin`, `out.bin`, `meta.json`.
 - CUDA tests not implemented yet.
 
+## Benchmark
+
+- Easiest: `make benchmark` builds and runs preset sizes, printing timing lines for each version.
+- OpenMP threads: set `OMP_NUM_THREADS`, e.g. `OMP_NUM_THREADS=8 make benchmark`.
+- Timings are reported in milliseconds via `timing.h`.
+
 ## Project Structure
 
 - `include/`: headers (`cmhsa_forward.h`, `macros.hpp`, `timing.h`, `utils.hpp`)

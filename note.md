@@ -4,6 +4,8 @@
 
 - I don't trust it with floating point numbers
 
+- Try this for auto-vectorization: https://www.youtube.com/watch?v=fPGodf5hNoo and function inlining
+
 ### Attention
 
 - Implementation: https://github.com/HicrestLaboratory/Open-VIT-bench

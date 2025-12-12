@@ -49,19 +49,13 @@ int main(int argc, char *argv[]) {
   float *V = (float *)malloc(sizeof(float) * qkv_size);
   float *out = (float *)malloc(sizeof(float) * qkv_size);
 
-  // Allocate workspace buffers
-  float *softmax_lse = (float *)malloc(sizeof(float) * stats_size);
-  float *softmax_max = (float *)malloc(sizeof(float) * stats_size);
-
   // Check allocations
-  if (!Q || !K || !V || !out || !softmax_lse || !softmax_max) {
+  if (!Q || !K || !V || !out) {
     fprintf(stderr, "Error: memory allocation failed\n");
     free(Q);
     free(K);
     free(V);
     free(out);
-    free(softmax_lse);
-    free(softmax_max);
     return 1;
   }
 
@@ -87,7 +81,7 @@ int main(int argc, char *argv[]) {
   // Call the cmhsa kernel for CPU with wall-clock timing
   struct timespec start, end;
   NOW(start);
-  cmhsa_forward_cpu(Q, K, V, out, softmax_lse, softmax_max, dims, scale);
+  cmhsa_forward_cpu(Q, K, V, out, dims, scale);
   NOW(end);
 
   print_timing("CPU attention forward", ns_diff(start, end));
@@ -100,8 +94,7 @@ int main(int argc, char *argv[]) {
 
   // Validation mode: write artifacts for Python and exit
   if (validate) {
-    struct Outputs outputs = {
-        Q, K, V, out, softmax_lse, softmax_max, qkv_size, stats_size, 0};
+    struct Outputs outputs = {Q, K, V, out, qkv_size, stats_size, 0};
 
     write_validation_artifacts(validate_dir, &cfg, &outputs);
   }
@@ -111,8 +104,6 @@ int main(int argc, char *argv[]) {
   free(K);
   free(V);
   free(out);
-  free(softmax_lse);
-  free(softmax_max);
 
   printf("\nCompleted successfully!\n");
   return 0;

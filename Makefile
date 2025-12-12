@@ -12,7 +12,8 @@ OPENMP = -fopenmp
 
 # Auto-select warning flags based on compiler
 # Default warnings (GCC)
-WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic
+# WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic
+WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic -flto
 # Clang-specific recommended warnings
 WARN_CLANG = -Wall -Wextra -Wpedantic -Wconversion
 
@@ -67,6 +68,27 @@ test:
 	$(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
 	python python_tests/validate_with_torch.py --bin ./$(EXEC) --batch 1 --n_heads 1 --seq_len 32 --head_dim 64 --seed 1337
 
+# Benchmark: build and run single-thread binaries for versions
+# Configurable benchmark parameters
+# BENCH_VERSIONS ?= v0 v1
+BENCH_VERSIONS ?= v0
+BENCH_BACKEND ?= single
+BENCH_BATCH ?= 8
+BENCH_HEADS ?= 32
+BENCH_SEQ ?= 256
+BENCH_DIM ?= 256
+BENCH_SEED ?= 1337
+
+benchmark:
+	@for ver in $(BENCH_VERSIONS); do \
+	  bin=cmhsa_$$ver.out; \
+	  src=kernels/single_thread/$$ver.cpp; \
+	  echo "Building $$bin (backend=$(BENCH_BACKEND), version=$$ver)"; \
+	  $(CXX) $(CXXFLAGS) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
+	  printf "$$ver: "; \
+	  ./$$bin --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) --seq_len $(BENCH_SEQ) --head_dim $(BENCH_DIM) --seed $(BENCH_SEED) | grep "CPU attention forward" || true; \
+	done
+
 # Convenience
 all: single
 
@@ -79,6 +101,7 @@ help:
 	@echo "  multi    Build multi-core backend (OpenMP)"
 	@echo "  cuda     Build CUDA backend (kernel stubbed)"
 	@echo "  test     Build test and validate against PyTorch (float32)"
+	@echo "  benchmark Compare single-thread v0 vs v1 timings"
 	@echo "  clean    Remove build/test artifacts"
 	@echo ""
 	@echo "Variables:"
@@ -92,4 +115,4 @@ clean:
 	rm -rf cmhsa*
 	rm -rf *.dSYM
 
-.PHONY: all single multi cuda test clean help
+.PHONY: all single multi cuda test benchmark clean help

@@ -47,23 +47,15 @@ typedef struct {
 //   K              - Key tensor [batch, n_heads, seq_len, head_dim]
 //   V              - Value tensor [batch, n_heads, seq_len, head_dim]
 //   out            - Output tensor [batch, n_heads, seq_len, head_dim]
-//   softmax_lse    - Log-sum-exp buffer [batch, n_heads, seq_len]
-//   softmax_max    - Running max buffer [batch, n_heads, seq_len]
 //   dims           - Dimension specification
 //   scale          - Attention scaling factor (typically 1/sqrt(head_dim))
 //
-// Note: softmax_lse and softmax_max are workspace buffers that must be
-//       pre-allocated by the caller. They enable numerically stable softmax
-//       computation and can be reused for backward pass if needed.
-//
 // ============================================================================
 void cmhsa_forward_cpu(
-    const float *RESTRICT Q,     // [batch, n_heads, seq_len, head_dim]
-    const float *RESTRICT K,     // [batch, n_heads, seq_len, head_dim]
-    const float *RESTRICT V,     // [batch, n_heads, seq_len, head_dim]
-    float *RESTRICT out,         // [batch, n_heads, seq_len, head_dim]
-    float *RESTRICT softmax_lse, // [batch, n_heads, seq_len]
-    float *RESTRICT softmax_max, // [batch, n_heads, seq_len]
+    const float *RESTRICT Q, // [batch, n_heads, seq_len, head_dim]
+    const float *RESTRICT K, // [batch, n_heads, seq_len, head_dim]
+    const float *RESTRICT V, // [batch, n_heads, seq_len, head_dim]
+    float *RESTRICT out,     // [batch, n_heads, seq_len, head_dim]
     const AttentionDims dims, const float scale);
 
 #ifdef USE_CUDA

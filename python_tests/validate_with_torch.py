@@ -91,14 +91,11 @@ def main():
         V = torch.from_numpy(read_bin(outdir / "v.bin", (B, H, S, D))).to(torch.float32)
         Out_c = read_bin(outdir / "out.bin", (B, H, S, D))
 
-        # HACK: For testing we are just doing this
-        Out_t = Out_c
-        # HACK: This will be done in the future
         # Compute PyTorch causal attention (torch applies 1/sqrt(D) internally)
-        # Out_t = F.scaled_dot_product_attention(
-        #     Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=True
-        # )
-        # Out_t = Out_t.detach().cpu().numpy()
+        Out_t = F.scaled_dot_product_attention(
+            Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=True
+        )
+        Out_t = Out_t.detach().cpu().numpy()
 
         # Compare
         diff = np.abs(Out_c - Out_t)

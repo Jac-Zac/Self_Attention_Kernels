@@ -22,8 +22,9 @@ __global__ void cmhsa_forward_kernel(const float *Q, const float *K,
 
 void cmhsa_forward_cuda(const float *RESTRICT Q, const float *RESTRICT K,
                         const float *RESTRICT V, float *RESTRICT out,
-                        float *RESTRICT softmax_lse, float *RESTRICT softmax_max,
-                        const AttentionDims dims, const float scale) {
+                        float *RESTRICT softmax_lse,
+                        float *RESTRICT softmax_max, const AttentionDims dims,
+                        const float scale) {
   // WARNING: Not implemented yet
   (void)Q;
   (void)K;

@@ -45,7 +45,3 @@ Thumbs.db
 
 # macOS debug symbols
 **.dSYM
-
-# Additional things
-.clangd
-_codeql_detected_source_root
