@@ -3,7 +3,6 @@
 #include "include/macros.hpp"
 #include "include/parser.hpp"
 #include "include/timing.h"
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -72,16 +71,12 @@ int main(int argc, char *argv[]) {
     VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, Q[d]);
   }
 
-  // Compute attention scale (1/sqrt(head_dim))
-  float scale = 1.0f / sqrtf((float)head_dim);
-
   printf("\nRunning attention forward pass...\n");
-  printf("Scale factor: %f\n", scale);
 
   // Call the cmhsa kernel for CPU with wall-clock timing
   struct timespec start, end;
   NOW(start);
-  cmhsa_forward_cpu(Q, K, V, out, dims, scale);
+  cmhsa_forward_cpu(Q, K, V, out, dims);
   NOW(end);
 
   print_timing("CPU attention forward", ns_diff(start, end));

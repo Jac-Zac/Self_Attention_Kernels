@@ -2,6 +2,8 @@
 
 > Remember to check with the assembly when the compiler says it is vectorizing
 
+I can try to force the compiler to not vectorize the code but nothing change next step is to analyze the assembly on a linux system
+
 - I don't trust it with floating point numbers
 
 - Try this for auto-vectorization: https://www.youtube.com/watch?v=fPGodf5hNoo and function inlining

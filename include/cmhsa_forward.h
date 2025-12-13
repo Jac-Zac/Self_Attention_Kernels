@@ -48,7 +48,6 @@ typedef struct {
 //   V              - Value tensor [batch, n_heads, seq_len, head_dim]
 //   out            - Output tensor [batch, n_heads, seq_len, head_dim]
 //   dims           - Dimension specification
-//   scale          - Attention scaling factor (typically 1/sqrt(head_dim))
 //
 // ============================================================================
 void cmhsa_forward_cpu(
@@ -56,7 +55,7 @@ void cmhsa_forward_cpu(
     const float *RESTRICT K, // [batch, n_heads, seq_len, head_dim]
     const float *RESTRICT V, // [batch, n_heads, seq_len, head_dim]
     float *RESTRICT out,     // [batch, n_heads, seq_len, head_dim]
-    const AttentionDims dims, const float scale);
+    const AttentionDims dims);
 
 #ifdef USE_CUDA
 
@@ -74,6 +73,6 @@ void cmhsa_forward_cuda(
     float *RESTRICT out,         // [batch, n_heads, seq_len, head_dim]
     float *RESTRICT softmax_lse, // [batch, n_heads, seq_len]
     float *RESTRICT softmax_max, // [batch, n_heads, seq_len]
-    const AttentionDims dims, const float scale);
+    const AttentionDims dims);
 
 #endif

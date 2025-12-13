@@ -23,10 +23,10 @@ inline void print_usage() {
 
 inline int parse_args(int argc, char **argv, RunConfig *cfg) {
   // defaults
-  cfg->batch = 2;
-  cfg->n_heads = 4;
-  cfg->seq_len = 128;
-  cfg->head_dim = 64;
+  cfg->batch = 4;
+  cfg->n_heads = 8;
+  cfg->seq_len = 256;
+  cfg->head_dim = 128;
   cfg->seed = 1337;
   cfg->validate = 0;
   cfg->validate_dir = "python_test";

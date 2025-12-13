@@ -70,8 +70,7 @@ test:
 
 # Benchmark: build and run single-thread binaries for versions
 # Configurable benchmark parameters
-# BENCH_VERSIONS ?= v0 v1
-BENCH_VERSIONS ?= v0
+BENCH_VERSIONS ?= v0 v1
 BENCH_BACKEND ?= single
 BENCH_BATCH ?= 8
 BENCH_HEADS ?= 32
