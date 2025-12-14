@@ -12,8 +12,8 @@ OPENMP = -fopenmp
 
 # Auto-select warning flags based on compiler
 # Default warnings (GCC)
-# WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic
-WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic -flto
+WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic
+# WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic -flto
 # Clang-specific recommended warnings
 WARN_CLANG = -Wall -Wextra -Wpedantic -Wconversion
 
@@ -51,6 +51,9 @@ NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA
 # Targets (unified executable name 'cmhsa.out')
 EXEC ?= cmhsa.out
 
+# asm-single:
+# 	$(CXX) $(CXXFLAGS) -fno-lto -S -fverbose-asm -masm=intel -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" main.cpp kernels/single_thread/$(VERSION).cpp
+
 single:
 	$(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
 
@@ -72,10 +75,10 @@ test:
 # Configurable benchmark parameters
 BENCH_VERSIONS ?= v0 v1
 BENCH_BACKEND ?= single
-BENCH_BATCH ?= 8
-BENCH_HEADS ?= 32
+BENCH_BATCH ?= 4
+BENCH_HEADS ?= 8
 BENCH_SEQ ?= 256
-BENCH_DIM ?= 256
+BENCH_DIM ?= 128
 BENCH_SEED ?= 1337
 
 benchmark:

@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
   size_t stats_size = batch * n_heads * seq_len;
 
   // Allocate input/output tensors
+  // TODO: To allocate memory better and alligned
   float *Q = (float *)malloc(sizeof(float) * qkv_size);
   float *K = (float *)malloc(sizeof(float) * qkv_size);
   float *V = (float *)malloc(sizeof(float) * qkv_size);
@@ -73,13 +74,36 @@ int main(int argc, char *argv[]) {
 
   printf("\nRunning attention forward pass...\n");
 
-  // Call the cmhsa kernel for CPU with wall-clock timing
-  struct timespec start, end;
-  NOW(start);
-  cmhsa_forward_cpu(Q, K, V, out, dims);
-  NOW(end);
+  // Warm-up and timed iterations
+  const int warmup = 5;
+  const int iters = 25;
 
-  print_timing("CPU attention forward", ns_diff(start, end));
+  // Warm-up runs (not timed)
+  for (int i = 0; i < warmup; i++) {
+    cmhsa_forward_cpu(Q, K, V, out, dims);
+  }
+
+  // Timed loop
+  unsigned long long total_ns = 0ULL;
+  float checksum = 0.0f;
+
+  for (int i = 0; i < iters; i++) {
+    struct timespec start, end;
+    NOW(start);
+    cmhsa_forward_cpu(Q, K, V, out, dims);
+    NOW(end);
+    total_ns += ns_diff(start, end);
+
+    // Accumulate a small checksum to keep the compiler honest
+    if (head_dim > 0) {
+      checksum += out[0];
+    }
+  }
+
+  print_timing("CPU attention forward (total)", total_ns);
+  printf("CPU attention forward (per-iter): %.6f s\n",
+         (double)total_ns / (double)iters / 1e9);
+  VERBOSE_PRINT("Checksum (sum of out[0] over iters): %f\n", checksum);
 
   // Optional sample outputs
   VERBOSE_PRINT("\nSample output values (first head, first token):\n");
