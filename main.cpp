@@ -42,22 +42,32 @@ int main(int argc, char *argv[]) {
   size_t qkv_size = batch * n_heads * seq_len * head_dim;
   size_t stats_size = batch * n_heads * seq_len;
 
-  // Allocate input/output tensors
-  // TODO: To allocate memory better and alligned
-  float *RESTRICT Q = (float *)malloc(sizeof(float) * qkv_size);
-  float *RESTRICT K = (float *)malloc(sizeof(float) * qkv_size);
-  float *RESTRICT V = (float *)malloc(sizeof(float) * qkv_size);
-  float *RESTRICT out = (float *)malloc(sizeof(float) * qkv_size);
+  // Allocate input/output tensors with aligned memory via macros
+  float *RESTRICT Q = NULL;
+  float *RESTRICT K = NULL;
+  float *RESTRICT V = NULL;
+  float *RESTRICT out = NULL;
+
+  int err = 0;
+  err |= (ALIGNED_ALLOC_FLOAT(Q, qkv_size) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(K, qkv_size) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(V, qkv_size) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(out, qkv_size) != 0);
 
   // Check allocations
-  if (!Q || !K || !V || !out) {
-    fprintf(stderr, "Error: memory allocation failed\n");
+  if (err) {
+    fprintf(stderr, "Error: aligned memory allocation failed\n");
     free(Q);
     free(K);
     free(V);
     free(out);
     return 1;
   }
+
+  ASSUME_ALIGNED_FLOAT(Q);
+  ASSUME_ALIGNED_FLOAT(K);
+  ASSUME_ALIGNED_FLOAT(V);
+  ASSUME_ALIGNED_FLOAT(out);
 
   // Initialize with random small values (typical for attention)
   srand(seed); // Fixed seed for reproducibility

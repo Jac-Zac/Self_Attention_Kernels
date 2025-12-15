@@ -28,3 +28,20 @@
 #define RESTRICT
 #endif
 #endif
+
+// Alignment configuration and helpers
+#ifndef ALIGNMENT
+#define ALIGNMENT 64
+#endif
+
+// Aligned allocation for float buffers using posix_memalign
+#define ALIGNED_ALLOC_FLOAT(ptr, count)                                        \
+  (posix_memalign((void **)&(ptr), ALIGNMENT, sizeof(float) * (count)))
+
+// Compiler alignment assumption hint
+#if defined(__GNUC__) || defined(__clang__)
+#define ASSUME_ALIGNED_FLOAT(ptr)                                              \
+  (ptr = (float *)__builtin_assume_aligned((ptr), ALIGNMENT))
+#else
+#define ASSUME_ALIGNED_FLOAT(ptr) ((void)0)
+#endif

@@ -1,6 +1,7 @@
 #include "../../include/cmhsa_forward.h"
 #include <float.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 /**
@@ -25,7 +26,19 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const float scale = 1 / sqrtf(head_dim);
 
   // Allocate buffer for one attention row (reused across all queries)
-  float *attn_weights = (float *)malloc(sizeof(float) * seq_len);
+  float *attn_weights = NULL;
+
+  int alloc_err = (ALIGNED_ALLOC_FLOAT(attn_weights, seq_len) != 0);
+  if (alloc_err || !attn_weights) {
+    fprintf(stderr, "Error: aligned allocation for attn_weights failed\n");
+    return; // function returns void; caller will abort overall run
+  }
+
+  ASSUME_ALIGNED_FLOAT(Q);
+  ASSUME_ALIGNED_FLOAT(K);
+  ASSUME_ALIGNED_FLOAT(V);
+  ASSUME_ALIGNED_FLOAT(out);
+  ASSUME_ALIGNED_FLOAT(attn_weights);
 
   // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {
