@@ -1,0 +1,41 @@
+#!/bin/bash
+#SBATCH --nodes=1                   # 1 node
+#SBATCH --ntasks=1                  # total MPI tasks across nodes
+#SBATCH --ntasks-per-node=1         # 8 MPI tasks on the node
+#SBATCH --cpus-per-task=1           # 8 OpenMP threads per MPI task
+#SBATCH --mem=0                     # use all available memory
+#SBATCH --partition=GENOA
+#SBATCH -t 00:00:20                 # 5 minutes
+#SBATCH --exclusive                 # Get exclusive access to benchmark
+#SBATCH --job-name=self_attention
+
+# Set the executable name
+EXEC=./cmhsa.out
+
+# =======================================================
+# Set OpenMP environment variables
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_PLACES=cores
+export OMP_PROC_BIND=close
+export OMP_DISPLAY_AFFINITY=TRUE
+
+# Loading necessary module
+module load openMPI/5.0.5
+
+# Set the total number of MPI tasks
+TOTAL_MPI_TASKS=${SLURM_NTASKS}
+
+# Define the arguments for the executable
+# A medium-sized grid suitable for a single-node run
+# ARGS="--batch 2 --n_heads 4 --seq_len 128 --head_dim 64"
+
+# Print run information
+echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
+echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+
+# Compile and run the benchmark
+make benchmark 
+
+# Run the code using mpirun
+# mpirun -np ${TOTAL_MPI_TASKS} --bind-to none  ${EXEC} ${ARGS} > ${TOTAL_MPI_TASKS}_mpi_${OMP_NUM_THREADS}_threads.log
+

@@ -12,7 +12,8 @@ OPENMP = -fopenmp
 
 # Auto-select warning flags based on compiler
 # Default warnings (GCC)
-WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic
+WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -march=native
+# WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic -march=native
 # WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic -flto
 # Clang-specific recommended warnings
 WARN_CLANG = -Wall -Wextra -Wpedantic -Wconversion

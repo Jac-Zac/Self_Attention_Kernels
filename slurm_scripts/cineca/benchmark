@@ -1,0 +1,44 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=10G
+##SBATCH --exclusive
+#SBATCH --partition=dcgp_usr_prod
+#SBATCH -A uTS25_Tornator_0
+#SBATCH -t 00:00:20
+#SBATCH --job-name=self_attention
+
+
+# =======================================================
+# Load the required modules for GCC and OpenMPI
+module load openmpi/4.1.6--gcc--12.2.0
+
+# Set the executable name
+EXEC=./cmhsa.out
+
+# =======================================================
+# Set OpenMP environment variables
+# export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_NUM_THREADS=1
+export OMP_PLACES=cores
+# export OMP_PROC_BIND=spread
+export OMP_PROC_BIND=close
+export OMP_DISPLAY_AFFINITY=TRUE
+
+# Set the total number of MPI tasks
+TOTAL_MPI_TASKS=${SLURM_NTASKS}
+
+# Define the arguments for the executable
+# A medium-sized grid suitable for a single-node run
+# ARGS="--batch 2 --n_heads 4 --seq_len 128 --head_dim 64"
+
+# Print run information
+echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
+echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+
+# Compile and run the benchmark
+make benchmark 
+
+# Run the code using mpirun
+# perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS > ${OMP_NUM_THREADS}_no_store.log

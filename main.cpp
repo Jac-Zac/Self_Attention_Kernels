@@ -44,10 +44,10 @@ int main(int argc, char *argv[]) {
 
   // Allocate input/output tensors
   // TODO: To allocate memory better and alligned
-  float *Q = (float *)malloc(sizeof(float) * qkv_size);
-  float *K = (float *)malloc(sizeof(float) * qkv_size);
-  float *V = (float *)malloc(sizeof(float) * qkv_size);
-  float *out = (float *)malloc(sizeof(float) * qkv_size);
+  float *RESTRICT Q = (float *)malloc(sizeof(float) * qkv_size);
+  float *RESTRICT K = (float *)malloc(sizeof(float) * qkv_size);
+  float *RESTRICT V = (float *)malloc(sizeof(float) * qkv_size);
+  float *RESTRICT out = (float *)malloc(sizeof(float) * qkv_size);
 
   // Check allocations
   if (!Q || !K || !V || !out) {
@@ -87,6 +87,7 @@ int main(int argc, char *argv[]) {
   unsigned long long total_ns = 0ULL;
   float checksum = 0.0f;
 
+  // Perform some iterations to measure a mroe accurate timing
   for (int i = 0; i < iters; i++) {
     struct timespec start, end;
     NOW(start);
