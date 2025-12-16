@@ -57,6 +57,9 @@ dot_product += Q[query_offset + d] * K[key_offset + d];
 
 Generates the following assembly:
 
+I need to be more precise where ! The dot product I believe actually vectorizes correctly (To review)
+- Other parts defenitly do not vecotize like all of the reductions
+
 ```asm
 ; 1. GOOD: It uses AVX (YMM, 256-bit) to LOAD and MULTIPLY 8 floats at once.
 vmovups ymm2, YMMWORD PTR [rdi+rax]       ; Load 8 floats from Q

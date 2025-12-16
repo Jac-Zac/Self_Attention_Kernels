@@ -34,6 +34,9 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
     return; // function returns void; caller will abort overall run
   }
 
+  // NOTE: The compiler can't garantee that the head dim is a multiple and thus
+  // keeps the data alligned therefore it will have to give unalligned ops
+
   ASSUME_ALIGNED_FLOAT(attn_weights);
 
   // Process each batch and head independently
@@ -79,6 +82,8 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         float sum_exp = 0.0f;
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float exp_val = expf(attn_weights[key_pos] - max_score);
+          // float exp_val = exp(attn_weights[key_pos] - max_score);
+
           attn_weights[key_pos] = exp_val;
           sum_exp += exp_val;
         }
