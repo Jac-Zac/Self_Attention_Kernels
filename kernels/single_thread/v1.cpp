@@ -34,10 +34,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
     return; // function returns void; caller will abort overall run
   }
 
-  ASSUME_ALIGNED_FLOAT(Q);
-  ASSUME_ALIGNED_FLOAT(K);
-  ASSUME_ALIGNED_FLOAT(V);
-  ASSUME_ALIGNED_FLOAT(out);
   ASSUME_ALIGNED_FLOAT(attn_weights);
 
   // Process each batch and head independently
@@ -100,16 +96,22 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Step 3: Weighted sum of values
         size_t output_offset = bh_offset + query_pos * head_dim;
 
+        // NOTE: Alternative version with better memory acess pattern
+        // Initialize output to zero first since memory is just allocated with
+        // malloc not set to zero also with calloc
         for (size_t d = 0; d < head_dim; d++) {
-          float weighted_sum = 0.0f;
+          out[output_offset + d] = 0.0f;
+        }
 
-          // Accumulate: sum over key positions of (attention_weight * value)
-          for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-            size_t value_offset = bh_offset + key_pos * head_dim;
-            weighted_sum += attn_weights[key_pos] * V[value_offset + d];
+        // Accumulate: now d is inner loop
+        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+          size_t value_offset = bh_offset + key_pos * head_dim;
+          float attn_weight = attn_weights[key_pos]; // Load once
+
+          for (size_t d = 0; d < head_dim; d++) {
+            out[output_offset + d] += attn_weight * V[value_offset + d];
+            // Sequential access! Perfect for vectorization
           }
-
-          out[output_offset + d] = weighted_sum;
         }
       }
     }

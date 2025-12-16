@@ -43,6 +43,9 @@
 
 === Notable result for version 1 (v1)
 
+// TODO: This
+Show how you can improve the code but chaging the loop structure in the last loop !
+
 
 Although the compiler appears to vectorize the naive solution based on its outputs, the generated code is not fully vectorized. 
 One clear example can be seen in the self-attention operation.
@@ -72,7 +75,7 @@ Instead of keeping YMM registers as partial sums and reducing them afterward, th
 This occurs because we use floating-point values, and GCC prioritizes *IEEE 754 compliance* without additional flags. 
 Since addition is not associative $(a + b) + c != a + (b + c)$ the compiler must revert to scalar instructions.
 
-Another case where this occurs is ...
+Another case where this occurs is ... is the softmax show the differennnce between v0 and v1 !
 
 
 = Multi-Threaded CPU Implementation  
