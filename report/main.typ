@@ -74,6 +74,17 @@ vunpckhps xmm1, xmm2, xmm2                ; Unpack high parts...
 ```
 
 
+be careful of things like this:
+
+```asm
+vaddss xmm0, xmm0, xmm1
+vaddss xmm0, xmm0, xmm3
+vaddss xmm0, xmm0, xmm3
+vaddss xmm0, xmm0, xmm1
+```
+
+I don't want to then do scalar reduction
+
 Instead of keeping YMM registers as partial sums and reducing them afterward, the compiler immediately reduces to scalar operations inside the loop, providing no speedup. 
 This occurs because we use floating-point values, and GCC prioritizes *IEEE 754 compliance* without additional flags. 
 Since addition is not associative $(a + b) + c != a + (b + c)$ the compiler must revert to scalar instructions.

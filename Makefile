@@ -7,8 +7,8 @@ endif
 
 NVCC = nvcc
 
-# CFLAGS = -O3 -march=native
-CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
+CFLAGS = -O3 -march=native
+# CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
 # CFLAGS = -O3 -march=native -fno-tree-loop-vectorize
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-tree-loop-vectorize
 # -flto
@@ -59,9 +59,6 @@ CUDA_VERSIONS := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 # Targets (unified executable name 'cmhsa.out')
 EXEC ?= cmhsa.out
 
-# asm-single:
-# 	$(CXX) $(CXXFLAGS) -fno-lto -S -fverbose-asm -masm=intel -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" main.cpp kernels/single_thread/$(VERSION).cpp
-
 single:
 	$(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
 
@@ -70,6 +67,9 @@ multi:
 
 cuda:
 	$(NVCC) $(NVCC_CFLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/cuda/$(VERSION).cu
+
+# asm-single:
+# 	$(CXX) $(CXXFLAGS) -fno-lto -S -fverbose-asm -masm=intel -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" main.cpp kernels/single_thread/$(VERSION).cpp
 
 # Test target: build main (single-thread backend) and validate against PyTorch
 # Float32-only; uses a temp dir via python_tests/validate_with_torch.py
@@ -94,10 +94,11 @@ benchmark:
 	  bin=cmhsa_$$ver.out; \
 	  src=kernels/single_thread/$$ver.cpp; \
 	  echo "Building $$bin (backend=$(BENCH_BACKEND), version=$$ver)"; \
-	  $(CXX) $(CXXFLAGS) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
+	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
 	  printf "$$ver: "; \
-	  ./$$bin --batch 4 --n_heads 8 --seq_len 256 --head_dim 128 --seed 1337 | grep "CPU attention forward" || true; \
+	  ./$$bin --batch 2 --n_heads 8 --seq_len 1024 --head_dim 256 --seed 1337 | grep "CPU attention forward" || true; \
 	done
+# ./$$bin --batch 4 --n_heads 8 --seq_len 256 --head_dim 128 --seed 1337 | grep "CPU attention forward" || true; \
 
 # Convenience
 all: single
