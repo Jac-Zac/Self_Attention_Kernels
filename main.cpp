@@ -23,11 +23,16 @@ int main(int argc, char *argv[]) {
   }
 
   // Get the parsed arguments
-  size_t batch = cfg.batch;
-  size_t n_heads = cfg.n_heads;
-  size_t seq_len = cfg.seq_len;
-  size_t head_dim = cfg.head_dim;
+  const size_t batch = cfg.batch;
+  const size_t n_heads = cfg.n_heads;
+  const size_t seq_len = cfg.seq_len;
+  const size_t head_dim = cfg.head_dim;
   unsigned seed = cfg.seed;
+
+  // Warm-up and timed iterations (configurable via flags)
+  const int warmup = cfg.warmup;
+  const int iters = cfg.iters;
+
   int validate = cfg.validate;
   const char *validate_dir = cfg.validate_dir;
 
@@ -83,10 +88,6 @@ int main(int argc, char *argv[]) {
   }
 
   printf("\nRunning attention forward pass...\n");
-
-  // Warm-up and timed iterations
-  const int warmup = 5;
-  const int iters = 25;
 
   // Warm-up runs (not timed)
   for (int i = 0; i < warmup; i++) {

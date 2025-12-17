@@ -87,18 +87,20 @@ test:
 
 # Benchmark: build and run single-thread binaries for all discovered versions
 # Uses SINGLE_VERSIONS for discovery; fixed benchmark sizes below
+# @batch=2; heads=8; seqlen=2048; headdim=256; seed=1337; warmup=5; iters=20; threads=1; \
 BENCH_BACKEND ?= single
 
 benchmark:
-	@for ver in $(SINGLE_VERSIONS); do \
+	@batch=2; heads=4; seqlen=512; headdim=256; seed=1337; warmup=3; iters=20; threads=1; \
+	for ver in $(SINGLE_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
 	  src=kernels/single_thread/$$ver.cpp; \
 	  echo "Building $$bin (backend=$(BENCH_BACKEND), version=$$ver)"; \
 	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
 	  printf "$$ver: "; \
-	  ./$$bin --batch 2 --n_heads 8 --seq_len 1024 --head_dim 256 --seed 1337 | grep "CPU attention forward" || true; \
+	  ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --seed $$seed --warmup $$warmup --iters $$iters | grep "CPU attention forward" || true; \
+	  uv run python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
 	done
-# ./$$bin --batch 4 --n_heads 8 --seq_len 256 --head_dim 128 --seed 1337 | grep "CPU attention forward" || true; \
 
 # Convenience
 all: single

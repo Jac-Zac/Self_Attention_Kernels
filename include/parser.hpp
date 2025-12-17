@@ -13,12 +13,14 @@ typedef struct RunConfig {
   unsigned seed;
   int validate;
   const char *validate_dir;
+  int warmup;
+  int iters;
 } RunConfig;
 
 inline void print_usage() {
   fprintf(stderr,
           "Usage: program [--validate-outdir DIR] [--batch N] [--n_heads N] "
-          "[--seq_len N] [--head_dim N] [--seed N]\n");
+          "[--seq_len N] [--head_dim N] [--seed N] [--warmup N] [--iters N]\n");
 }
 
 inline int parse_args(int argc, char **argv, RunConfig *cfg) {
@@ -30,6 +32,8 @@ inline int parse_args(int argc, char **argv, RunConfig *cfg) {
   cfg->seed = 1337;
   cfg->validate = 0;
   cfg->validate_dir = "python_test";
+  cfg->warmup = 5;
+  cfg->iters = 25;
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
@@ -70,6 +74,18 @@ inline int parse_args(int argc, char **argv, RunConfig *cfg) {
         return 1;
       }
       cfg->seed = (unsigned)strtoul(argv[++i], NULL, 10);
+    } else if (strcmp(arg, "--warmup") == 0) {
+      if (i + 1 >= argc) {
+        print_usage();
+        return 1;
+      }
+      cfg->warmup = (int)strtol(argv[++i], NULL, 10);
+    } else if (strcmp(arg, "--iters") == 0) {
+      if (i + 1 >= argc) {
+        print_usage();
+        return 1;
+      }
+      cfg->iters = (int)strtol(argv[++i], NULL, 10);
     } else {
       fprintf(stderr, "Error: unknown flag '%s'\n", arg);
       print_usage();
