@@ -79,7 +79,7 @@ test:
 	@set -e; \
 	for ver in $(SINGLE_VERSIONS); do \
 	  echo "[test] single $$ver"; \
-	  $(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$$ver\" -o $(EXEC) main.cpp kernels/single_thread/$$ver.cpp; \
+	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"single\" -DVERSION_STR=\"$$ver\" -o $(EXEC) main.cpp kernels/single_thread/$$ver.cpp; \
 	  python python_tests/validate_with_torch.py --bin ./$(EXEC) \
 	    --batch 1 --n_heads 1 --seq_len 32 --head_dim 64 --seed 1337; \
 	done
@@ -99,8 +99,9 @@ benchmark:
 	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
 	  printf "$$ver: "; \
 	  ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --seed $$seed --warmup $$warmup --iters $$iters | grep "CPU attention forward" || true; \
-	  uv run python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
 	done
+
+# uv run python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
 
 # Convenience
 all: single

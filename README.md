@@ -18,14 +18,15 @@ Simple, learning-focused kernels:
 
 - `./cmhsa` runs with defaults.
 - Flags (errors on unknown/missing values):
-  - `--validate-outdir DIR`
+  - `--validate-outdir DIR` (writes Q/K/V/out and meta for Python)
   - `--batch N` `--n_heads N` `--seq_len N` `--head_dim N`
-  - `--seed N`
+  - `--seed N` `--warmup N` `--iters N`
 - Causal is always enabled.
 
 ## Test
 
 - `make test` runs the lightweight validation program that uses the same parser.
+- Python deps: use `uv` with `pyproject.toml`, or `pip install -r requirements.txt` if you don’t use uv.
 - Artifacts written under `python_tests/`: `q.bin`, `k.bin`, `v.bin`, `out.bin`, `meta.json`.
 - CUDA tests not implemented yet.
 

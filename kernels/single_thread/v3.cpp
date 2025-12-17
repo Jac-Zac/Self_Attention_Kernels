@@ -101,9 +101,9 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         // Explicitly zero out masked positions (already -inf -> exp -> 0)
-        for (size_t key_pos = query_pos + 1; key_pos < seq_len; key_pos++) {
-          attn_weights[key_pos] = 0.0f;
-        }
+        // for (size_t key_pos = query_pos + 1; key_pos < seq_len; key_pos++) {
+        //   attn_weights[key_pos] = 0.0f;
+        // }
 
         // Step 3: Weighted sum of values
         size_t output_offset = bh_offset + query_pos * head_dim;
