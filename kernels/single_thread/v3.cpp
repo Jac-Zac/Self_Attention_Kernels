@@ -59,6 +59,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         // Apply causal mask: future positions get -inf (zeroed after softmax)
+#pragma omp simd
         for (size_t key_pos = query_pos + 1; key_pos < seq_len; key_pos++) {
           attn_weights[key_pos] = -INFINITY;
         }
@@ -104,6 +105,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // NOTE: Alternative version with better memory acess pattern
         // Initialize output to zero first since memory is just allocated with
         // malloc not set to zero also with calloc
+#pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
           out[output_offset + d] = 0.0f;
         }
