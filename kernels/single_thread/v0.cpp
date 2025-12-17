@@ -8,15 +8,18 @@
  *
  * Computes: out = softmax(Q K^T / sqrt(d)) V with causal masking
  *
- * @param Q         Query tensor [B, H, S, D]
- * @param K         Key tensor [B, H, S, D]
- * @param V         Value tensor [B, H, S, D]
- * @param out       Output tensor [B, H, S, D]
- * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
+ * @param Q           Query tensor [B, H, S, D]
+ * @param K           Key tensor [B, H, S, D]
+ * @param V           Value tensor [B, H, S, D]
+ * @param out         Output tensor [B, H, S, D]
+ * @param attn_weights Output buffer [seq_len] for intermediate things
+ * @param dims        Attention dimensions (batch, heads, seq_len, head_dim)
  */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
-                       const AttentionDims dims) {
+                       float *RESTRICT attn_weights, const AttentionDims dims) {
+
+  (void)attn_weights; // Just to not have the compiler complain
 
   size_t batch_size = dims.batch;
   size_t num_heads = dims.n_heads;
@@ -25,7 +28,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const float scale = 1 / sqrtf(head_dim);
 
   // Allocate buffer for one attention row (reused across all queries)
-  float *attn_weights = (float *)malloc(sizeof(float) * seq_len);
+  float *attn_weights_inside = (float *)malloc(sizeof(float) * seq_len);
 
   // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {
@@ -52,38 +55,38 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
 
-          attn_weights[key_pos] = dot_product * scale;
+          attn_weights_inside[key_pos] = dot_product * scale;
         }
 
         // Apply causal mask: future positions get -inf (zeroed after softmax)
         for (size_t key_pos = query_pos + 1; key_pos < seq_len; key_pos++) {
-          attn_weights[key_pos] = -INFINITY;
+          attn_weights_inside[key_pos] = -INFINITY;
         }
 
         // Step 2: Numerically stable softmax
         // Find max for numerical stability (log-sum-exp trick)
         float max_score = -INFINITY;
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          if (attn_weights[key_pos] > max_score)
-            max_score = attn_weights[key_pos];
+          if (attn_weights_inside[key_pos] > max_score)
+            max_score = attn_weights_inside[key_pos];
         }
 
         // Compute exp(score - max) and accumulate sum
         float sum_exp = 0.0f;
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          float exp_val = expf(attn_weights[key_pos] - max_score);
-          attn_weights[key_pos] = exp_val;
+          float exp_val = expf(attn_weights_inside[key_pos] - max_score);
+          attn_weights_inside[key_pos] = exp_val;
           sum_exp += exp_val;
         }
 
         // Normalize to get probabilities
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          attn_weights[key_pos] /= sum_exp;
+          attn_weights_inside[key_pos] /= sum_exp;
         }
 
         // Explicitly zero out masked positions (already -inf -> exp -> 0)
         for (size_t key_pos = query_pos + 1; key_pos < seq_len; key_pos++) {
-          attn_weights[key_pos] = 0.0f;
+          attn_weights_inside[key_pos] = 0.0f;
         }
 
         // Step 3: Weighted sum of values
@@ -95,7 +98,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           // Accumulate: sum over key positions of (attention_weight * value)
           for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
             size_t value_offset = bh_offset + key_pos * head_dim;
-            weighted_sum += attn_weights[key_pos] * V[value_offset + d];
+            weighted_sum += attn_weights_inside[key_pos] * V[value_offset + d];
           }
 
           out[output_offset + d] = weighted_sum;
@@ -104,5 +107,5 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
     }
   }
 
-  free(attn_weights);
+  free(attn_weights_inside);
 }

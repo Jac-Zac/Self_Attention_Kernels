@@ -55,6 +55,8 @@ else
   echo "requirements.txt not found; skipping pip install."
 fi
 
+source .venv/bin/activate
+
 # Compile and run the benchmark
 make benchmark 
 

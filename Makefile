@@ -7,8 +7,8 @@ endif
 
 NVCC = nvcc
 
-CFLAGS = -O3 -march=native
-# CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
+# CFLAGS = -O3 -march=native
+CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
 # CFLAGS = -O3 -march=native -fno-tree-loop-vectorize
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-tree-loop-vectorize
 # -flto
@@ -99,9 +99,9 @@ benchmark:
 	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
 	  printf "$$ver: "; \
 	  ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --seed $$seed --warmup $$warmup --iters $$iters | grep "CPU attention forward" || true; \
+		python3 python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
 	done
 
-# uv run python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
 
 # Convenience
 all: single

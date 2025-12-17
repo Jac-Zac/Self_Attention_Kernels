@@ -52,12 +52,14 @@ int main(int argc, char *argv[]) {
   float *RESTRICT K = NULL;
   float *RESTRICT V = NULL;
   float *RESTRICT out = NULL;
+  float *RESTRICT workspace = NULL;
 
   int err = 0;
   err |= (ALIGNED_ALLOC_FLOAT(Q, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(K, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(V, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(out, qkv_size) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(workspace, seq_len) != 0);
 
   // Check allocations
   if (err) {
@@ -66,6 +68,7 @@ int main(int argc, char *argv[]) {
     free(K);
     free(V);
     free(out);
+    free(workspace);
     return 1;
   }
 
@@ -73,6 +76,7 @@ int main(int argc, char *argv[]) {
   ASSUME_ALIGNED_FLOAT(K);
   ASSUME_ALIGNED_FLOAT(V);
   ASSUME_ALIGNED_FLOAT(out);
+  ASSUME_ALIGNED_FLOAT(workspace);
 
   // Initialize with random small values (typical for attention)
   srand(seed); // Fixed seed for reproducibility
@@ -91,7 +95,7 @@ int main(int argc, char *argv[]) {
 
   // Warm-up runs (not timed)
   for (int i = 0; i < warmup; i++) {
-    cmhsa_forward_cpu(Q, K, V, out, dims);
+    cmhsa_forward_cpu(Q, K, V, out, workspace, dims);
   }
 
   // Timed loop
@@ -102,7 +106,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < iters; i++) {
     struct timespec start, end;
     NOW(start);
-    cmhsa_forward_cpu(Q, K, V, out, dims);
+    cmhsa_forward_cpu(Q, K, V, out, workspace, dims);
     NOW(end);
     total_ns += ns_diff(start, end);
 
@@ -134,6 +138,7 @@ int main(int argc, char *argv[]) {
   free(Q);
   free(K);
   free(V);
+  free(workspace);
   free(out);
 
   printf("\nCompleted successfully!\n");

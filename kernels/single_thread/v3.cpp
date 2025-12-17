@@ -16,31 +16,18 @@
  * @param K         Key tensor [B, H, S, D]
  * @param V         Value tensor [B, H, S, D]
  * @param out       Output tensor [B, H, S, D]
+ * @param attn_weights Output buffer [seq_len] for intermediate things
  * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
  */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
-                       const AttentionDims dims) {
+                       float *RESTRICT attn_weights, const AttentionDims dims) {
 
   size_t batch_size = dims.batch;
   size_t num_heads = dims.n_heads;
   size_t seq_len = dims.seq_len;
   size_t head_dim = dims.head_dim;
   const float scale = 1 / sqrtf(head_dim);
-
-  // Allocate buffer for one attention row (reused across all queries)
-  float *attn_weights = NULL;
-
-  int alloc_err = (ALIGNED_ALLOC_FLOAT(attn_weights, seq_len) != 0);
-  if (alloc_err || !attn_weights) {
-    fprintf(stderr, "Error: aligned allocation for attn_weights failed\n");
-    return; // function returns void; caller will abort overall run
-  }
-
-  // NOTE: The compiler can't garantee that the head dim is a multiple and thus
-  // keeps the data alligned therefore it will have to give unalligned ops
-
-  ASSUME_ALIGNED_FLOAT(attn_weights);
 
   // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {
@@ -62,7 +49,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
 // NOTE: This is very important if we want simd directly withouth the need of
 // relaxing math
-#pragma omp simd reduction(+ : dot_product)
+#pragma omp simd reduction(+ : dot_product) aligned(out, V : 32)
           // Dot product across head dimension
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
@@ -79,9 +66,15 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Step 2: Numerically stable softmax
         // Find max for numerical stability (log-sum-exp trick)
         float max_score = -INFINITY;
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          if (attn_weights[key_pos] > max_score)
-            max_score = attn_weights[key_pos];
+        // for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+        //   if (attn_weights[key_pos] > max_score)
+        //     max_score = attn_weights[key_pos];
+        // }
+
+#pragma omp simd reduction(max : max_score)
+        for (size_t key_pos = 0; key_pos <= query_pos; ++key_pos) {
+          float v = attn_weights[key_pos];
+          max_score = v > max_score ? v : max_score;
         }
 
         // Compute exp(score - max) and accumulate sum
@@ -129,6 +122,4 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
       }
     }
   }
-
-  free(attn_weights);
 }
