@@ -8,8 +8,8 @@ endif
 NVCC = nvcc
 
 # CFLAGS = -O3 -march=native
-# CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-unroll-loops
-CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
+CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-unroll-loops
+# CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
 # CFLAGS = -O3 -march=native -fno-tree-loop-vectorize
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-tree-loop-vectorize
 # -flto
@@ -53,7 +53,10 @@ CXXFLAGS = $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
 NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA
 
 # Discovered kernel versions
-SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
+# SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
+# NOTE: For now let's exclude v0 since it takes a lot of time to compute
+SINGLE_VERSIONS := $(filter-out v0,$(basename $(notdir $(wildcard kernels/single_thread/v*.cpp))))
+
 MULTI_VERSIONS := $(basename $(notdir $(wildcard kernels/multi_core_cpu/v*.cpp)))
 CUDA_VERSIONS := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 
@@ -92,7 +95,7 @@ test:
 BENCH_BACKEND ?= single
 
 benchmark:
-	@batch=2; heads=4; seqlen=512; headdim=256; seed=1337; warmup=3; iters=20; threads=1; \
+	@batch=2; heads=4; seqlen=1024; headdim=128; seed=1337; warmup=3; iters=25; threads=1; \
 	for ver in $(SINGLE_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
 	  src=kernels/single_thread/$$ver.cpp; \

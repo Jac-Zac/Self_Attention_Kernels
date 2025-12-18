@@ -45,8 +45,8 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // NOTE: Her it is only doing the lower traingular
 
         // Step 1: Compute scaled dot-product attention scores
-        // QK^T for all valid (non-causal-masked) key positions
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+        // QK^T for all positions
+        for (size_t key_pos = 0; key_pos < seq_len; key_pos++) {
           float dot_product = 0.0f;
           size_t key_offset = bh_offset + key_pos * head_dim;
 
@@ -66,21 +66,21 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Step 2: Numerically stable softmax
         // Find max for numerical stability (log-sum-exp trick)
         float max_score = -INFINITY;
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+        for (size_t key_pos = 0; key_pos < seq_len; key_pos++) {
           if (attn_weights_inside[key_pos] > max_score)
             max_score = attn_weights_inside[key_pos];
         }
 
         // Compute exp(score - max) and accumulate sum
         float sum_exp = 0.0f;
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+        for (size_t key_pos = 0; key_pos < seq_len; key_pos++) {
           float exp_val = expf(attn_weights_inside[key_pos] - max_score);
           attn_weights_inside[key_pos] = exp_val;
           sum_exp += exp_val;
         }
 
         // Normalize to get probabilities
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+        for (size_t key_pos = 0; key_pos < seq_len; key_pos++) {
           attn_weights_inside[key_pos] /= sum_exp;
         }
 
@@ -96,7 +96,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           float weighted_sum = 0.0f;
 
           // Accumulate: sum over key positions of (attention_weight * value)
-          for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+          for (size_t key_pos = 0; key_pos < seq_len; key_pos++) {
             size_t value_offset = bh_offset + key_pos * head_dim;
             weighted_sum += attn_weights_inside[key_pos] * V[value_offset + d];
           }

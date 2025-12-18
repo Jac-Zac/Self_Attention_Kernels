@@ -38,32 +38,32 @@ echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
 echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
 # Minimal Python venv + requirements
-VENV_DIR="${VENV_DIR:-.venv}"
-PY_BIN="${PY_BIN:-$(command -v python3 || command -v python)}"
-if [ -z "$PY_BIN" ]; then
-  echo "Python not found. Load a Python module." >&2
-  exit 1
-fi
-[ -d "$VENV_DIR" ] || "$PY_BIN" -m venv "$VENV_DIR"
-# shellcheck disable=SC1090
-source "$VENV_DIR/bin/activate"
-python -m pip install --upgrade pip
-
-# Pick requirements.txt and install always
-REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requirements.txt}"
-[ -f "$REQ_FILE" ] || REQ_FILE="requirements.txt"
-if [ -f "$REQ_FILE" ]; then
-  echo "Installing Python dependencies from $REQ_FILE..."
-  pip install -r "$REQ_FILE"
-else
-  echo "requirements.txt not found; skipping pip install."
-fi
-
-source .venv/bin/activate
-
-# Print run information
-echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
-echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+# VENV_DIR="${VENV_DIR:-.venv}"
+# PY_BIN="${PY_BIN:-$(command -v python3 || command -v python)}"
+# if [ -z "$PY_BIN" ]; then
+#   echo "Python not found. Load a Python module." >&2
+#   exit 1
+# fi
+# [ -d "$VENV_DIR" ] || "$PY_BIN" -m venv "$VENV_DIR"
+# # shellcheck disable=SC1090
+# source "$VENV_DIR/bin/activate"
+# python -m pip install --upgrade pip
+#
+# # Pick requirements.txt and install always
+# REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requirements.txt}"
+# [ -f "$REQ_FILE" ] || REQ_FILE="requirements.txt"
+# if [ -f "$REQ_FILE" ]; then
+#   echo "Installing Python dependencies from $REQ_FILE..."
+#   pip install -r "$REQ_FILE"
+# else
+#   echo "requirements.txt not found; skipping pip install."
+# fi
+#
+# source .venv/bin/activate
+#
+# # Print run information
+# echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
+# echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
 # Compile and run the benchmark
 make benchmark 
