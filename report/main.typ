@@ -1,17 +1,5 @@
 #import "@preview/red-agora:0.1.2": project
 
-// HACK: To now show table of figures and table of tables
-#show outline: it => {
-  let is-figure = it.target == figure.where(kind: image)
-  let is-table = it.target == figure.where(kind: table)
-  
-  if is-figure or is-table {
-    none
-  } else {
-    it
-  }
-}
-
 #show: project.with(
   title: "Tutorial: Implementing Efficient Causal Multi-Head Self-Attention for CPU and GPU",
   subtitle: "A Performance-Oriented Study of Self-Attention Kernels Across Computing Architectures",
@@ -21,9 +9,11 @@
   school-logo: [],
   company-logo: [],
   mentors: (
-    "Pr. John Smith (Internal)",
+    "Prof. Luca Tornatore
+",
   ),
-  branch: "High Performance Computing",
+  footer-text: "DSAI",
+  branch: "Advanced High Performance Computing",
   academic-year: "2024-2025",
 )
 
@@ -31,8 +21,6 @@
 #set math.equation(numbering: "(1)")
 #set par(justify: true)
 #show link: set text(fill: blue)
-
-#bibliography("refs.bib")
 
 #include "sections/introduction.typ"
 #include "sections/background.typ"
@@ -45,7 +33,6 @@
 
 // TODO: This
 Show how you can improve the code but chaging the loop structure in the last loop !
-
 
 Although the compiler appears to vectorize the naive solution based on its outputs, the generated code is not fully vectorized. 
 One clear example can be seen in the self-attention operation.
@@ -109,4 +96,4 @@ Another case where this occurs is ... is the softmax show the differennnce betwe
 [To be completed in next sections]
 
 = References
-// #bibliography("refs.bib")
+#bibliography("refs.bib")
