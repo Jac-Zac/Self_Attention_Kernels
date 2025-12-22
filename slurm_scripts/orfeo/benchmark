@@ -2,9 +2,10 @@
 #SBATCH --nodes=1                   # 1 node
 #SBATCH --ntasks=1                  # total MPI tasks across nodes
 #SBATCH --ntasks-per-node=1         # 8 MPI tasks on the node
-#SBATCH --cpus-per-task=1           # 8 OpenMP threads per MPI task
+#SBATCH --cpus-per-task=24           # 8 OpenMP threads per MPI task
 #SBATCH --mem=0                     # use all available memory
-#SBATCH --partition=GENOA
+##SBATCH --partition=GENOA
+#SBATCH --partition=THIN
 #SBATCH -t 00:05:00                 # 5 minutes
 #SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH --job-name=self_attention
@@ -27,7 +28,7 @@ TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
 # Define the arguments for the executable
 # A medium-sized grid suitable for a single-node run
-# ARGS="--batch 2 --n_heads 4 --seq_len 128 --head_dim 64"
+ARGS="--batch 4 --n_heads 16 --seq_len 1024 --head_dim 64"
 
 # Print run information
 echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
@@ -58,7 +59,10 @@ fi
 source .venv/bin/activate
 
 # Compile and run the benchmark
-make benchmark 
+make benchmark
+# make multi DEBUG=1 VERSION=v1 BENCH_THREADS=${BENCH_THREADS}
 
 # Run the code using mpirun
 # mpirun -np ${TOTAL_MPI_TASKS} --bind-to none  ${EXEC} ${ARGS} > ${TOTAL_MPI_TASKS}_mpi_${OMP_NUM_THREADS}_threads.log
+
+# perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS

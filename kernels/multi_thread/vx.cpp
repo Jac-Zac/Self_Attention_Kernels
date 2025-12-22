@@ -21,6 +21,8 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT buffer, const AttentionDims dims) {
 
+  (void)buffer;
+
   size_t batch_size = dims.batch;
   size_t num_heads = dims.n_heads;
   size_t seq_len = dims.seq_len;
@@ -32,75 +34,67 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
     float *attn_weights = (float *)alloca(seq_len * sizeof(float));
 
 // Process each batch and head independently
-#pragma omp for collapse(3)
+#pragma omp for collapse(2)
     for (size_t b = 0; b < batch_size; b++) {
       for (size_t h = 0; h < num_heads; h++) {
         for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
-
           // Base offset for current batch and head: [b, h, :, :]
           size_t bh_offset =
               b * (num_heads * seq_len * head_dim) + h * (seq_len * head_dim);
 
           size_t query_offset = bh_offset + query_pos * head_dim;
 
-          // NOTE: No need to compute it for key_pos > query_pos
-          // Step 1: Compute scaled dot-product attention scores
-          // QK^T for all valid (non-causal-masked) key positions
+          // NOTE: We can directly keep track of the max score inside when doing
+          // the dot_product computation no need to do it later
+          float max_score = -FLT_MAX;
           for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
             float dot_product = 0.0f;
             size_t key_offset = bh_offset + key_pos * head_dim;
 
             // Dot product across head dimension
+#pragma omp simd reduction(+ : dot_product)
             for (size_t d = 0; d < head_dim; d++) {
               dot_product += Q[query_offset + d] * K[key_offset + d];
             }
 
-            attn_weights[key_pos] = dot_product * scale;
-          }
-
-          // Step 2: Numerically stable softmax
-          // Find max for numerical stability (log-sum-exp trick)
-          float max_score = -FLT_MAX;
-          for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-            if (attn_weights[key_pos] > max_score)
-              max_score = attn_weights[key_pos];
+            float score = dot_product * scale;
+            max_score = score > max_score ? score : max_score;
+            attn_weights[key_pos] = score;
           }
 
           // Compute exp(score - max) and accumulate sum
           float sum_exp = 0.0f;
+
+#pragma omp simd
           for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
             float exp_val = expf(attn_weights[key_pos] - max_score);
-            // float exp_val = exp(attn_weights[key_pos] - max_score);
 
             attn_weights[key_pos] = exp_val;
             sum_exp += exp_val;
           }
 
-          // Normalize to get probabilities
-          for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-            attn_weights[key_pos] /= sum_exp;
-          }
-
           // Step 3: Weighted sum of values
           size_t output_offset = bh_offset + query_pos * head_dim;
+          // Pre-compute reciprocal
+          const float inv_sum_exp = 1.0f / sum_exp;
 
-          // NOTE: Alternative version with better memory acess pattern
-          // Initialize output to zero first since memory is just allocated with
-          // malloc not set to zero also with calloc
-          //
+#pragma omp simd
           for (size_t d = 0; d < head_dim; d++) {
             // Adding this initialization since now we are accumulating and want
             // to be sure that this memory is properly set to zero
             out[output_offset + d] = 0.0f;
           }
 
-          // Accumulate: now d is inner loop
+          // Step 3: Weighted Sum (Normalization merged here)
           for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
             size_t value_offset = bh_offset + key_pos * head_dim;
-            float attn_weight = attn_weights[key_pos]; // Load once
+            // Merge normalization into the weight also no need for expensive
+            // division every time we precompute it before
+            float normalized_weight = attn_weights[key_pos] * inv_sum_exp;
 
+#pragma omp simd
             for (size_t d = 0; d < head_dim; d++) {
-              out[output_offset + d] += attn_weight * V[value_offset + d];
+              out[output_offset + d] += normalized_weight * V[value_offset + d];
             }
           }
         }

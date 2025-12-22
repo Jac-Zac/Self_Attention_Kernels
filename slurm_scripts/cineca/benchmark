@@ -1,18 +1,24 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=112
 #SBATCH --mem=10G
-##SBATCH --exclusive
 #SBATCH --partition=dcgp_usr_prod
+#SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH -A uTS25_Tornator_0
-#SBATCH -t 00:00:20
+#SBATCH -t 00:02:00
 #SBATCH --job-name=self_attention
-
 
 # =======================================================
 # Load the required modules for GCC and OpenMPI
 module load openmpi/4.1.6--gcc--12.2.0
+
+# 1. Load the specific VTune version
+module load intel-oneapi-vtune/2024.1.0
+
+# 2. Set the results directory name
+# Good practice to include the version (v3) in the folder name
+RESULT_DIR="vtune_report_v3"
 
 # Set the executable name
 EXEC=./cmhsa.out
@@ -66,7 +72,25 @@ echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 # echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
 # Compile and run the benchmark
-make benchmark 
+# make benchmark
 
-# Run the code using mpirun
-# perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS > ${OMP_NUM_THREADS}_no_store.log
+make multi DEBUG=1 VERSION=v1
+
+# 3. Run Microarchitecture Exploration
+# This tells you if your Attention kernel is "Retiring" instructions
+# or stalled by memory/frontend issues.
+vtune -collect uarch-exploration -result-dir ${RESULT_DIR}_uarch \
+        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 512 --head_dim 128
+
+# make benchmark
+make DEBUG=1 VERSION=v1
+
+# 3. Run Microarchitecture Exploration
+# This tells you if your Attention kernel is "Retiring" instructions
+# or stalled by memory/frontend issues.
+# 4. (Optional) Run Memory Access analysis
+# This will specifically pinpoint why you had that 87% cache miss rate earlier.
+vtune -collect memory-access -result-dir ${RESULT_DIR}_mem \
+        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 512 --head_dim 128
+
+perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS

@@ -61,12 +61,12 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // NOTE: Those part will not be used anymore
         // Apply causal mask: future positions get -inf (zeroed after softmax)
         // for (size_t key_pos = query_pos + 1; key_pos < seq_len; key_pos++) {
-        //   attn_weights[key_pos] = -INFINITY;
+        //   attn_weights[key_pos] = -FLT_MAX;
         // }
 
         // Step 2: Numerically stable softmax
         // Find max for numerical stability (log-sum-exp trick)
-        float max_score = -INFINITY;
+        float max_score = -FLT_MAX;
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           if (attn_weights[key_pos] > max_score)
             max_score = attn_weights[key_pos];

@@ -14,6 +14,7 @@ CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-o
 # CFLAGS = -O3 -march=native -fno-tree-loop-vectorize
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-tree-loop-vectorize
 # -flto
+CFLAGS += -flto
 # CFLAGS += -mveclibabi=svml
 OPENMP = -fopenmp
 
