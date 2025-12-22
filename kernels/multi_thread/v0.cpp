@@ -21,8 +21,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT buffer, const AttentionDims dims) {
 
-  (void)buffer;
-
   size_t batch_size = dims.batch;
   size_t num_heads = dims.n_heads;
   size_t seq_len = dims.seq_len;
@@ -31,7 +29,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
 #pragma omp parallel
   {
-    // float *attn_weights = (float *)alloca(seq_len * sizeof(float));
     float *attn_weights = (float *)alloca(seq_len * sizeof(float));
 
 // Process each batch and head independently
@@ -39,14 +36,17 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 #pragma omp for
     for (size_t b = 0; b < batch_size; b++) {
       for (size_t h = 0; h < num_heads; h++) {
+
+        // Base offset for current batch and head: [b, h, :, :]
+        size_t bh_offset =
+            b * (num_heads * seq_len * head_dim) + h * (seq_len * head_dim);
+
+        // Process each query position
         for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
-
-          // Base offset for current batch and head: [b, h, :, :]
-          size_t bh_offset =
-              b * (num_heads * seq_len * head_dim) + h * (seq_len * head_dim);
-
           size_t query_offset = bh_offset + query_pos * head_dim;
 
+          // NOTE: No need to compute it for key_pos > query_pos
+          // Step 1: Compute scaled dot-product attention scores
           // QK^T for all valid (non-causal-masked) key positions
           for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
             float dot_product = 0.0f;
