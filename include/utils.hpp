@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "vector_pragmas.h"
+
 // Shared outputs from attention run
 struct Outputs {
   float *Q;
@@ -28,3 +30,35 @@ inline void free_outputs(struct Outputs *outputs) {
   outputs->qkv_size = outputs->stats_size = 0;
   outputs->elapsed_ns = 0;
 }
+
+#ifdef VERBOSE
+#define VERBOSE_PRINT(...) printf(__VA_ARGS__)
+#else
+#define VERBOSE_PRINT(...) ((void)0)
+#endif
+
+// RESTRICT macro
+#ifndef RESTRICT
+#if defined(__GNUC__) || defined(__clang__)
+#define RESTRICT __restrict__
+#elif defined(_MSC_VER)
+#define RESTRICT __restrict
+#elif __STDC_VERSION__ >= 199901L
+#define RESTRICT restrict
+#else
+#define RESTRICT
+#endif
+#endif
+
+// Alignment configuration and helpers
+#ifndef ALIGNMENT
+#define ALIGNMENT 64
+#endif
+
+// Aligned allocation for float buffers using posix_memalign
+#define ALIGNED_ALLOC_FLOAT(ptr, count)                                        \
+  (posix_memalign((void **)&(ptr), ALIGNMENT, sizeof(float) * (count)))
+
+// Compiler alignment assumption hint (generalized)
+#define ASSUME_ALIGNED_FLOAT(ptr)                                              \
+  (ptr = (float *)ASSUME_ALIGNED((ptr), ALIGNMENT))

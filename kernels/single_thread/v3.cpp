@@ -5,85 +5,89 @@
 #include <stdlib.h>
 
 /**
- * Causal Multi-Head Self-Attention forward pass (CPU implementation)
- *
- * Computes: out = softmax(Q K^T / sqrt(d)) V with causal masking
- *
- * @param Q         Query tensor [B, H, S, D]
- * @param K         Key tensor [B, H, S, D]
- * @param V         Value tensor [B, H, S, D]
- * @param out       Output tensor [B, H, S, D]
- * @param attn_weights Output buffer [seq_len] for intermediate things
- * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
+ * Causal Multi-Head Self-Attention (Optimized Single-Threaded)
+ * Focus: Reducing Port 6 pressure and Front-End index overhead.
  */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT attn_weights, const AttentionDims dims) {
 
-  size_t batch_size = dims.batch;
-  size_t num_heads = dims.n_heads;
-  size_t seq_len = dims.seq_len;
-  size_t head_dim = dims.head_dim;
-  const float scale = 1 / sqrtf(head_dim);
+  const size_t batch_size = dims.batch;
+  const size_t num_heads = dims.n_heads;
+  const size_t seq_len = dims.seq_len;
+  const size_t head_dim = dims.head_dim;
+  const float scale = 1.0f / sqrtf((float)head_dim);
 
-  // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
-      // Base offset for current batch and head: [b, h, :, :]
-      size_t bh_offset =
-          b * (num_heads * seq_len * head_dim) + h * (seq_len * head_dim);
+      // --- Pointer Hoisting (Solves Index Arithmetic) ---
+      // Pre-calculate the base of the current [batch, head] block.
+      size_t head_offset =
+          (b * num_heads * seq_len * head_dim) + (h * seq_len * head_dim);
 
-      // Process each query position
+      const float *RESTRICT head_Q = ASSUME_ALIGNED(&Q[head_offset], 64);
+      const float *RESTRICT head_K = ASSUME_ALIGNED(&K[head_offset], 64);
+      const float *RESTRICT head_V = ASSUME_ALIGNED(&V[head_offset], 64);
+      float *RESTRICT head_out = ASSUME_ALIGNED(&out[head_offset], 64);
+
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
-        size_t query_offset = bh_offset + query_pos * head_dim;
+        // q_ptr and out_ptr are fixed for the duration of the key_pos loops.
+        const float *RESTRICT q_ptr =
+            ASSUME_ALIGNED(&head_Q[query_pos * head_dim], 64);
+        float *RESTRICT out_ptr =
+            ASSUME_ALIGNED(&head_out[query_pos * head_dim], 64);
 
-        // NOTE: We can directly keep track of the max score inside when doing
-        // the dot_product computation no need to do it later
-        float max_score = -INFINITY;
+        float max_score = -FLT_MAX;
+
+        // --- Step 1: Dot Product (QK^T) ---
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          float dot_product = 0.0f;
-          size_t key_offset = bh_offset + key_pos * head_dim;
+          const float *RESTRICT k_ptr =
+              ASSUME_ALIGNED(&head_K[key_pos * head_dim], 64);
+          float dp = 0.0f;
 
-          // Dot product across head dimension
+          // Inner loop: vectorized math
+          LOOP_VECTORIZE
           for (size_t d = 0; d < head_dim; d++) {
-            dot_product += Q[query_offset + d] * K[key_offset + d];
+            dp += q_ptr[d] * k_ptr[d];
           }
 
-          float score = dot_product * scale;
-          max_score = score > max_score ? score : max_score;
+          float score = dp * scale;
           attn_weights[key_pos] = score;
+          max_score = (score > max_score) ? score : max_score;
         }
 
-        // Compute exp(score - max) and accumulate sum
+        // --- Step 2: Softmax (Exp & Sum) ---
         float sum_exp = 0.0f;
+        LOOP_VECTORIZE
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          float exp_val = expf(attn_weights[key_pos] - max_score);
-
-          attn_weights[key_pos] = exp_val;
-          sum_exp += exp_val;
+          float ev = expf(attn_weights[key_pos] - max_score);
+          attn_weights[key_pos] = ev;
+          sum_exp += ev;
         }
-
-        // Step 3: Weighted sum of values
-        size_t output_offset = bh_offset + query_pos * head_dim;
-        // Pre-compute reciprocal
         const float inv_sum_exp = 1.0f / sum_exp;
 
+        // --- Step 3: Weighted Sum (Output) ---
+        // Zero out the output row once.
+        LOOP_VECTORIZE
         for (size_t d = 0; d < head_dim; d++) {
-          // Adding this initialization since now we are accumulating and want
-          // to be sure that this memory is properly set to zero
-          out[output_offset + d] = 0.0f;
+          out_ptr[d] = 0.0f;
         }
 
-        // Step 3: Weighted Sum (Normalization merged here)
+        // --- Reduction of Port 6 Pressure ---
+        // Unroll the loop that manages v_ptr. This allows the CPU to issue
+        // multiple FMA instructions from different rows of V simultaneously.
+        LOOP_UNROLL_N(4)
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          size_t value_offset = bh_offset + key_pos * head_dim;
-          // Merge normalization into the weight also no need for expensive
-          // division every time we precompute it before
-          float normalized_weight = attn_weights[key_pos] * inv_sum_exp;
+          const float *RESTRICT v_ptr =
+              ASSUME_ALIGNED(&head_V[key_pos * head_dim], 64);
+          const float weight = attn_weights[key_pos] * inv_sum_exp;
 
+          LOOP_VECTORIZE
+          VECTOR_ALIGNED
           for (size_t d = 0; d < head_dim; d++) {
-            out[output_offset + d] += normalized_weight * V[value_offset + d];
+            // Hot loop: vfmadd231ps
+            out_ptr[d] += weight * v_ptr[d];
           }
         }
       }
