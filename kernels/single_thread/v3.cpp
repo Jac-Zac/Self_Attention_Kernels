@@ -1,7 +1,6 @@
 #include "../../include/cmhsa_forward.h"
 #include <float.h>
 #include <math.h>
-#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -47,7 +46,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           size_t key_offset = bh_offset + key_pos * head_dim;
 
           // Dot product across head dimension
-#pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
@@ -71,7 +69,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Pre-compute reciprocal
         const float inv_sum_exp = 1.0f / sum_exp;
 
-#pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
           // Adding this initialization since now we are accumulating and want
           // to be sure that this memory is properly set to zero
@@ -85,7 +82,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           // division every time we precompute it before
           float normalized_weight = attn_weights[key_pos] * inv_sum_exp;
 
-#pragma omp simd
           for (size_t d = 0; d < head_dim; d++) {
             out[output_offset + d] += normalized_weight * V[value_offset + d];
           }

@@ -113,7 +113,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
           for (size_t d = 0; d < head_dim; d++) {
             out[output_offset + d] += attn_weight * V[value_offset + d];
-            // Sequential access! Perfect for vectorization
           }
         }
       }
