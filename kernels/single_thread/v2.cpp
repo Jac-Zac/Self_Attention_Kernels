@@ -1,6 +1,7 @@
 #include "../../include/cmhsa_forward.h"
 #include <float.h>
 #include <math.h>
+#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -40,12 +41,15 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // NOTE: We can directly keep track of the max score inside when doing
         // the dot_product computation no need to do it later
-        float max_score = -INFINITY;
+        float max_score = -FLT_MAX;
+
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float dot_product = 0.0f;
           size_t key_offset = bh_offset + key_pos * head_dim;
 
           // Dot product across head dimension
+#pragma omp simd reduction(+ : dot_product)
+          LOOP_VECTORIZE
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
@@ -57,6 +61,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // Compute exp(score - max) and accumulate sum
         float sum_exp = 0.0f;
+#pragma omp simd
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float exp_val = expf(attn_weights[key_pos] - max_score);
 
@@ -69,6 +74,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Pre-compute reciprocal
         const float inv_sum_exp = 1.0f / sum_exp;
 
+#pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
           // Adding this initialization since now we are accumulating and want
           // to be sure that this memory is properly set to zero
@@ -82,6 +88,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           // division every time we precompute it before
           float normalized_weight = attn_weights[key_pos] * inv_sum_exp;
 
+#pragma omp simd
           for (size_t d = 0; d < head_dim; d++) {
             out[output_offset + d] += normalized_weight * V[value_offset + d];
           }

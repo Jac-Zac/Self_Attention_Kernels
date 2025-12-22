@@ -13,6 +13,7 @@ CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-o
 # CFLAGS = -O3 -march=native -fno-tree-loop-vectorize
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-tree-loop-vectorize
 # -flto
+# CFLAGS += -mveclibabi=svml
 OPENMP = -fopenmp
 
 # Auto-select warning flags based on compiler
@@ -133,7 +134,7 @@ test:
 	    $(CXX) $(CXXFLAGS) $(OPENMP) \
 	      -DBACKEND=\"$$backend\" -DVERSION_STR=\"$$ver\" \
 	      -o $(EXEC) main.cpp kernels/$$backend\_thread/$$ver.cpp; \
-	    python python_tests/validate_with_torch.py --bin ./$(EXEC) \
+	    python3 python_tests/validate_with_torch.py --bin ./$(EXEC) \
 	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337; \
 	  done; \
 	done

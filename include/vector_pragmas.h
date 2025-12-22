@@ -90,7 +90,7 @@
 #elif defined(__GNUC__)
 
 #define IVDEP _Pragma("GCC ivdep")
-#define LOOP_VECTORIZE _Pragma("GCC ivdep")
+#define LOOP_VECTORIZE
 #define LOOP_VECTOR_LENGTH(N)
 
 #define LOOP_UNROLL _Pragma("GCC unroll 4")

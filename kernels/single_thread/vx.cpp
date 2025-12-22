@@ -41,7 +41,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // NOTE: We can directly keep track of the max score inside when doing
         // the dot_product computation no need to do it later
-        float max_score = -INFINITY;
+        float max_score = -FLT_MAX;
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float dot_product = 0.0f;
           size_t key_offset = bh_offset + key_pos * head_dim;

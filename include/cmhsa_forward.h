@@ -52,10 +52,10 @@ typedef struct {
 //
 // ============================================================================
 void cmhsa_forward_cpu(
-    const float *RESTRICT Q,   // [batch, n_heads, seq_len, head_dim]
-    const float *RESTRICT K,   // [batch, n_heads, seq_len, head_dim]
-    const float *RESTRICT V,   // [batch, n_heads, seq_len, head_dim]
-    float *RESTRICT out,       // [batch, n_heads, seq_len, head_dim]
+    const float *RESTRICT Q,      // [batch, n_heads, seq_len, head_dim]
+    const float *RESTRICT K,      // [batch, n_heads, seq_len, head_dim]
+    const float *RESTRICT V,      // [batch, n_heads, seq_len, head_dim]
+    float *RESTRICT out,          // [batch, n_heads, seq_len, head_dim]
     float *RESTRICT attn_weights, // [seq_len]
     const AttentionDims dims);
 

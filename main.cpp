@@ -1,9 +1,9 @@
 #include "include/cmhsa_forward.h"
 #include "include/io.hpp"
-#include "include/vector_pragmas.h"
-#include "include/utils.hpp"
 #include "include/parser.hpp"
 #include "include/timing.h"
+#include "include/utils.hpp"
+#include "include/vector_pragmas.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -73,11 +73,11 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  Q = (float*) ASSUME_ALIGNED(Q, ALIGNMENT);
-  K = (float*) ASSUME_ALIGNED(K, ALIGNMENT);
-  V = (float*) ASSUME_ALIGNED(V, ALIGNMENT);
-  out = (float*) ASSUME_ALIGNED(out, ALIGNMENT);
-  workspace = (float*) ASSUME_ALIGNED(workspace, ALIGNMENT);
+  Q = (float *)ASSUME_ALIGNED(Q, ALIGNMENT);
+  K = (float *)ASSUME_ALIGNED(K, ALIGNMENT);
+  V = (float *)ASSUME_ALIGNED(V, ALIGNMENT);
+  out = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
+  workspace = (float *)ASSUME_ALIGNED(workspace, ALIGNMENT);
 
   // Initialize with random small values (typical for attention)
   srand(seed); // Fixed seed for reproducibility
