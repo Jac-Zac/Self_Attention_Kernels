@@ -49,7 +49,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
 // Help compiler recognize simple stride-1 access
 #pragma omp simd reduction(+ : dot_product)
-          LOOP_VECTORIZE
+          LOOP_UNROLL
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += q_row[d] * k_row[d];
           }
@@ -61,8 +61,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // Softmax Exponentiation
         float sum_exp = 0.0f;
-#pragma omp simd reduction(+ : sum_exp)
-        LOOP_VECTORIZE
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float exp_val = expf(attn_weights[key_pos] - max_score);
           attn_weights[key_pos] = exp_val;
@@ -72,8 +70,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         const float inv_sum_exp = 1.0f / sum_exp;
         float *out_row = &out_aligned[bh_offset + query_pos * head_dim];
 
-// Zero out output row
-#pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
           out_row[d] = 0.0f;
         }
@@ -83,8 +79,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           const float *v_row = &v_aligned[bh_offset + key_pos * head_dim];
           float weight = attn_weights[key_pos] * inv_sum_exp;
 
-#pragma omp simd
-          LOOP_VECTORIZE
           for (size_t d = 0; d < head_dim; d++) {
             out_row[d] += weight * v_row[d];
           }

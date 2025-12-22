@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// NOTE: This version impelments different improvements but actually limits
+// instruction level parallelism, note that currently when using ffast-math and
+// AVX-512 the vtune report Back-End Bound: ~28%, Front-End Bound: ~17%
+
 /**
  * Causal Multi-Head Self-Attention forward pass (CPU implementation)
  *
@@ -49,7 +53,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
           // Dot product across head dimension
 #pragma omp simd reduction(+ : dot_product)
-          LOOP_VECTORIZE
+          LOOP_UNROLL
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
@@ -61,7 +65,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // Compute exp(score - max) and accumulate sum
         float sum_exp = 0.0f;
-#pragma omp simd
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float exp_val = expf(attn_weights[key_pos] - max_score);
 
@@ -74,7 +77,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Pre-compute reciprocal
         const float inv_sum_exp = 1.0f / sum_exp;
 
-#pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
           // Adding this initialization since now we are accumulating and want
           // to be sure that this memory is properly set to zero
@@ -88,7 +90,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           // division every time we precompute it before
           float normalized_weight = attn_weights[key_pos] * inv_sum_exp;
 
-#pragma omp simd
           for (size_t d = 0; d < head_dim; d++) {
             out[output_offset + d] += normalized_weight * V[value_offset + d];
           }
