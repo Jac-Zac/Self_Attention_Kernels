@@ -7,8 +7,8 @@ endif
 
 NVCC = nvcc
 
-CFLAGS = -O3 -march=native
-# CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-unroll-loops
+# CFLAGS = -O3 -march=native
+CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-unroll-loops
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
 # CFLAGS = -O3 -march=native -fno-tree-loop-vectorize
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-tree-loop-vectorize
@@ -56,8 +56,7 @@ NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA
 # SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
 # NOTE: For now let's exclude v0 since it takes a lot of time to compute
 SINGLE_VERSIONS := $(filter-out v0,$(basename $(notdir $(wildcard kernels/single_thread/v*.cpp))))
-
-MULTI_VERSIONS := $(basename $(notdir $(wildcard kernels/multi_core_cpu/v*.cpp)))
+MULTI_VERSIONS := $(basename $(notdir $(wildcard kernels/multi_thread/v*.cpp)))
 CUDA_VERSIONS := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 
 # Targets (unified executable name 'cmhsa.out')
@@ -67,7 +66,7 @@ single:
 	$(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
 
 multi:
-	$(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"multi\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/multi_core_cpu/$(VERSION).cpp
+	$(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"multi\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/multi_thread/$(VERSION).cpp
 
 cuda:
 	$(NVCC) $(NVCC_CFLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/cuda/$(VERSION).cu
@@ -79,32 +78,66 @@ cuda:
 # Float32-only; uses a temp dir via python_tests/validate_with_torch.py
 # Runs validation for all discovered single-thread versions
 
-test:
-	@set -e; \
-	for ver in $(SINGLE_VERSIONS); do \
-	  echo "[test] single $$ver"; \
-	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"single\" -DVERSION_STR=\"$$ver\" -o $(EXEC) main.cpp kernels/single_thread/$$ver.cpp; \
-	  python python_tests/validate_with_torch.py --bin ./$(EXEC) \
-	    --batch 1 --n_heads 1 --seq_len 32 --head_dim 64 --seed 1337; \
-	done
-
-
 # Benchmark: build and run single-thread binaries for all discovered versions
 # Uses SINGLE_VERSIONS for discovery; fixed benchmark sizes below
-# @batch=2; heads=8; seqlen=2048; headdim=256; seed=1337; warmup=5; iters=20; threads=1; \
+# @batch=2; heads=4; seqlen=1024; headdim=128; seed=1337; warmup=3; iters=25; threads=1; \
+# @batch=2; heads=8; seqlen=2048; headdim=128; seed=1337; warmup=5; iters=10; threads=$(BENCH_THREADS); \
 BENCH_BACKEND ?= single
+BENCH_BACKEND := $(strip $(BENCH_BACKEND))
+ifeq ($(BENCH_BACKEND),)
+  BENCH_BACKEND := single
+endif
+
+BENCH_THREADS ?= 1
+BENCH_THREADS := $(strip $(BENCH_THREADS))
+ifeq ($(BENCH_THREADS),)
+  BENCH_THREADS := 8
+endif
+
+# Select versions and source dir based on backend
+ifeq ($(BENCH_BACKEND),single)
+  BENCH_VERSIONS := $(SINGLE_VERSIONS)
+  BENCH_SRC_DIR := kernels/single_thread
+else ifeq ($(BENCH_BACKEND),multi)
+  BENCH_VERSIONS := $(MULTI_VERSIONS)
+  BENCH_SRC_DIR := kernels/multi_thread
+else
+  BENCH_VERSIONS := $(SINGLE_VERSIONS)
+  BENCH_SRC_DIR := kernels/single_thread
+endif
 
 benchmark:
-	@batch=2; heads=4; seqlen=1024; headdim=128; seed=1337; warmup=3; iters=25; threads=1; \
-	for ver in $(SINGLE_VERSIONS); do \
+	@batch=4; heads=8; seqlen=1024; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
+	for ver in $(BENCH_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
-	  src=kernels/single_thread/$$ver.cpp; \
+	  src=$(BENCH_SRC_DIR)/$$ver.cpp; \
 	  echo "Building $$bin (backend=$(BENCH_BACKEND), version=$$ver)"; \
 	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
 	  printf "$$ver: "; \
-	  ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --seed $$seed --warmup $$warmup --iters $$iters | grep "CPU attention forward" || true; \
-		python3 python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
+	  OMP_NUM_THREADS=$$threads ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --seed $$seed --warmup $$warmup --iters $$iters | grep "CPU attention forward" || true; \
+	  OMP_NUM_THREADS=$$threads MKL_NUM_THREADS=$$threads OPENBLAS_NUM_THREADS=$$threads NUMEXPR_NUM_THREADS=$$threads \
+	     python3 python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
 	done
+	make clean
+
+
+test:
+	@set -e; \
+	for backend in single multi; do \
+	  case $$backend in \
+	    single) versions="$(SINGLE_VERSIONS)" ;; \
+	    multi)  versions="$(MULTI_VERSIONS)" ;; \
+	  esac; \
+	  for ver in $$versions; do \
+	    echo "[test] $$backend $$ver"; \
+	    $(CXX) $(CXXFLAGS) $(OPENMP) \
+	      -DBACKEND=\"$$backend\" -DVERSION_STR=\"$$ver\" \
+	      -o $(EXEC) main.cpp kernels/$$backend\_thread/$$ver.cpp; \
+	    python python_tests/validate_with_torch.py --bin ./$(EXEC) \
+	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337; \
+	  done; \
+	done
+# cuda)   versions="$(CUDA_VERSIONS)" ;; \
 
 
 # Convenience
@@ -115,22 +148,24 @@ help:
 	@echo "Usage: make <target> [VARIABLES]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  single   Build single-thread backend (VERSION?=v0)"
-	@echo "  multi    Build multi-core backend (OpenMP)"
-	@echo "  cuda     Build CUDA backend (kernel stubbed)"
-	@echo "  test     Validate all single-thread versions (float32)"
-	@echo "  benchmark Benchmark all discovered single-thread versions"
-	@echo "  clean    Remove build/test artifacts"
+	@echo "  single     Build single-thread backend (VERSION?=v0)"
+	@echo "  multi      Build multi-core backend (OpenMP)"
+	@echo "  cuda       Build CUDA backend (kernel stubbed)"
+	@echo "  test       Validate all single-thread versions (float32)"
+	@echo "  benchmark  Benchmark discovered versions (BENCH_BACKEND=single|multi)"
+	@echo "  clean      Remove build/test artifacts"
 	@echo ""
 	@echo "Variables:"
-	@echo "  VERSION   Kernel version to use (e.g., v0, v1). Default v0"
-	@echo "  DEBUG=1   Enable debug build and -DDEBUG"
-	@echo "  VERBOSE=1 Enable verbose prints (-DVERBOSE)"
-	@echo "  CXX=clang++  Use clang++ instead of g++"
+	@echo "  VERSION        Kernel version to use (e.g., v0, v1). Default v0"
+	@echo "  DEBUG=1        Enable debug build and -DDEBUG"
+	@echo "  VERBOSE=1      Enable verbose prints (-DVERBOSE)"
+	@echo "  CXX=clang++    Use clang++ instead of g++"
+	@echo "  BENCH_BACKEND  Backend for benchmark: single (default) or multi"
+	@echo "  BENCH_THREADS  Threads used for both C++ and PyTorch benchmark"
 
 # Clean
 clean:
 	rm -rf cmhsa*
 	rm -rf *.dSYM
 
-.PHONY: all single multi cuda test benchmark clean help
+.PHONY: all single multi cuda test benchmark bench clean help
