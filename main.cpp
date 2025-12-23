@@ -44,9 +44,13 @@ int main(int argc, char *argv[]) {
   // Setup dimensions
   AttentionDims dims = {batch, n_heads, seq_len, head_dim};
 
-  // Calculate buffer sizes
-  size_t qkv_size = batch * n_heads * seq_len * head_dim;
-  size_t stats_size = batch * n_heads * seq_len;
+  // Compute padded dimensions for strides and scratch
+  const size_t head_dim_padded = round_up_pow2(head_dim, VEC_PADDING);
+  const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
+
+  // Calculate buffer sizes (use padded strides for storage)
+  size_t qkv_size = batch * n_heads * seq_len * head_dim_padded;
+  size_t stats_size = batch * n_heads * seq_len; // logical stats count
 
   // Allocate input/output tensors with aligned memory via macros
   float *RESTRICT Q = NULL;
@@ -60,7 +64,8 @@ int main(int argc, char *argv[]) {
   err |= (ALIGNED_ALLOC_FLOAT(K, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(V, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(out, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(workspace, seq_len) != 0);
+  // Per-(b,h) scratch slices: batch*n_heads*seq_len_padded
+  err |= (ALIGNED_ALLOC_FLOAT(workspace, batch * n_heads * seq_len_padded) != 0);
 
   // Check allocations
   if (err) {

@@ -8,6 +8,11 @@
 
 #include "vector_pragmas.h"
 
+// Round up x to the next multiple of a (a must be power of 2)
+static inline size_t round_up_pow2(size_t x, size_t a) {
+  return (x + a - 1) & ~(a - 1);
+}
+
 // Shared outputs from attention run
 struct Outputs {
   float *Q;

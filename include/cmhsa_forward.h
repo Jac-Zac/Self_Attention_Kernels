@@ -3,6 +3,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Logical-to-physical stride helpers
+static inline size_t stride_head_dim(size_t head_dim) {
+  return round_up_pow2(head_dim, VEC_PADDING);
+}
+static inline size_t pad_seq_len(size_t seq_len) {
+  return round_up_pow2(seq_len, VEC_PADDING);
+}
+
 // ============================================================================
 // Multi-Head Self-Attention Forward Pass
 // ============================================================================
@@ -47,16 +55,19 @@ typedef struct {
 //   K              - Key tensor [batch, n_heads, seq_len, head_dim]
 //   V              - Value tensor [batch, n_heads, seq_len, head_dim]
 //   out            - Output tensor [batch, n_heads, seq_len, head_dim]
-//   attn_weights   - Tmp scratch space [seq_len]
+//   attn_weights   - Workspace base, sized at least
+//                     batch*n_heads*pad_seq_len(seq_len) floats
 //   dims           - Dimension specification
 //
+// Note: Internal row strides use stride_head_dim(head_dim). Logical math loops
+//       still iterate over head_dim and seq_len.
 // ============================================================================
 void cmhsa_forward_cpu(
     const float *RESTRICT Q,      // [batch, n_heads, seq_len, head_dim]
     const float *RESTRICT K,      // [batch, n_heads, seq_len, head_dim]
     const float *RESTRICT V,      // [batch, n_heads, seq_len, head_dim]
     float *RESTRICT out,          // [batch, n_heads, seq_len, head_dim]
-    float *RESTRICT attn_weights, // [seq_len]
+    float *RESTRICT attn_weights, // workspace base
     const AttentionDims dims);
 
 #ifdef USE_CUDA

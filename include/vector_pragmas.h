@@ -1,5 +1,9 @@
-
 #pragma once
+
+// Vector padding width for AVX-512 (floats)
+#ifndef VEC_PADDING
+#define VEC_PADDING 16
+#endif
 
 // the two following macros are useful only to
 // produce pragma strings in the source files
@@ -8,47 +12,26 @@
 #define _DO_PRAGMA(x) _Pragma(#x)
 //
 
-/* ============================================================================
- * ==                                                                        ==
- * ==                                                                        ==
- * == D I C T I O N A R Y                                                    ==
- * ==                                                                        ==
- * ==                                                                        ==
- * ============================================================================
-
- * ××××××××××××××××××××
- * × VECTORIZATION
-
- - IVDEP
- - LOOP_VECTORIZE              defined for clang and icx, empty for gcc
- - LOOP_VECTOR_LENGTH(N)       defined for clang, empty for others
- - VECTOR_ALWAYS         |
- - VECTOR_ALIGNED        | ->  defined for intel compiler, empty for others
- - VECTOR_UNALIGNED      |
-
- * ××××××××××××××××××××
- * × LOOPS
-
- - LOOP_UNROLL                 generic directive for unrollinf
- - LOOP_UNROLL_N(n)            directive for unrolling n times
-
- * ××××××××××××××××××××
- * × ALIGMENT
-
- - ASSUME_ALIGNED              assume an alignment for an array
- - ATTRIBUTE_ALIGNED           instruct to aligne a static variable
-
- * ============================================================================
- * ==                                                                        ==
- * == end of Dictionary                                                      ==
- * ============================================================================
- */
-
-/* ············································································
+/* =========================================================================
+ * ==                          D I C T I O N A R Y                         ==
+ * =========================================================================
+ * VECTORIZATION
+ *   - IVDEP
+ *   - LOOP_VECTORIZE              defined for clang and icx, empty for gcc
+ *   - LOOP_VECTOR_LENGTH(N)       defined for clang, empty for others
+ *   - VECTOR_ALWAYS / VECTOR_ALIGNED / VECTOR_UNALIGNED (Intel only)
  *
- *  INTEL COMPILER
+ * LOOPS
+ *   - LOOP_UNROLL
+ *   - LOOP_UNROLL_N(n)
+ *
+ * ALIGNMENT
+ *   - ASSUME_ALIGNED
+ *   - ATTRIBUTE_ALIGNED
+ * =========================================================================
  */
 
+/* ----------------------- INTEL COMPILER -------------------------------- */
 #if defined(__INTEL_LLVM_COMPILER)
 #pragma message "using Intel LLVM Compiler"
 
@@ -65,11 +48,7 @@
 #define ASSUME_ALIGNED(V, A) ((__typeof__(V))__builtin_assume_aligned((V), (A)))
 #define ATTRIBUTE_ALIGNED(A) __attribute__((aligned((A))))
 
-/* ············································································
- *
- *  CLANG
- */
-
+/* ----------------------------- CLANG ----------------------------------- */
 #elif defined(__clang__)
 
 #define IVDEP _Pragma("clang ivdep")
@@ -82,11 +61,7 @@
 #define ASSUME_ALIGNED(V, A) ((__typeof__(V))__builtin_assume_aligned((V), (A)))
 #define ATTRIBUTE_ALIGNED(A) __attribute__((__aligned__((A))))
 
-/* ············································································
- *
- *  GCC
- */
-
+/* ------------------------------ GCC ------------------------------------ */
 #elif defined(__GNUC__)
 
 #define IVDEP
@@ -99,14 +74,10 @@
 #define ASSUME_ALIGNED(V, A) ((__typeof__(V))__builtin_assume_aligned((V), (A)))
 #define ATTRIBUTE_ALIGNED(A) __attribute__((aligned((A))))
 
-/* ············································································
- *
- *  ARM COMPILER
- */
+/* --------------------------- OTHER ------------------------------------- */
 #elif defined(__CC_ARM)
 
 #error "ARM compilers are not supported yet")
-// TBD, sorry
 
 #else
 
@@ -115,9 +86,9 @@
 #endif
 
 #if !defined(__INTEL_LLVM_COMPILER)
-#define VECTOR_ALWAYS    //_Pragma("message \"vector always not defined\"")
-#define VECTOR_ALIGNED   //_Pragma("message \"vector aligned not defined\"")
-#define VECTOR_UNALIGNED //_Pragma("message \"vector unaligned not defined\"")
+#define VECTOR_ALWAYS
+#define VECTOR_ALIGNED
+#define VECTOR_UNALIGNED
 #endif
 
 #define FORCE_VECTORIZE IVDEP
