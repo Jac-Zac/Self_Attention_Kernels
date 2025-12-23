@@ -36,7 +36,8 @@ inline void write_meta(const char *path, const RunConfig *cfg) {
 // Pack a logical [B,H,S,D] tensor from a padded-stride buffer into a
 // contiguous temporary buffer, then write it to disk. The source layout is
 // row-major with row stride = head_dim_stride.
-inline void write_packed_qkv(const char *path, const float *src, const RunConfig *cfg) {
+inline void write_packed_qkv(const char *path, const float *src,
+                             const RunConfig *cfg) {
   const size_t B = cfg->batch;
   const size_t H = cfg->n_heads;
   const size_t S = cfg->seq_len;

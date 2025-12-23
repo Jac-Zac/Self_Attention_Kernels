@@ -31,10 +31,13 @@ def parse_args():
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--rtol", type=float, default=1e-4)
     p.add_argument("--atol", type=float, default=1e-5)
+    p.add_argument("--threads", type=int, default=1)
     return p.parse_args()
 
 
-def run_bin(bin_path: str, outdir: Path, B: int, H: int, S: int, D: int, seed: int):
+def run_bin(
+    bin_path: str, outdir: Path, B: int, H: int, S: int, D: int, seed: int, threads: int
+):
     cmd = [
         bin_path,
         "--validate-outdir",
@@ -49,6 +52,8 @@ def run_bin(bin_path: str, outdir: Path, B: int, H: int, S: int, D: int, seed: i
         str(D),
         "--seed",
         str(seed),
+        "--threads",
+        str(max(1, threads)),
     ]
     subprocess.run(cmd, check=True)
 
@@ -78,6 +83,7 @@ def main():
             args.seq_len,
             args.head_dim,
             args.seed,
+            args.threads,
         )
 
         meta = read_meta(outdir / "meta.json")

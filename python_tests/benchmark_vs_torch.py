@@ -29,7 +29,15 @@ def parse_args():
 
 
 def run_c_binary(
-    bin_path: str, B: int, H: int, S: int, D: int, seed: int, warmup: int, iters: int
+    bin_path: str,
+    B: int,
+    H: int,
+    S: int,
+    D: int,
+    seed: int,
+    warmup: int,
+    iters: int,
+    threads: int,
 ) -> float:
     cmd = [
         bin_path,
@@ -47,6 +55,8 @@ def run_c_binary(
         str(warmup),
         "--iters",
         str(iters),
+        "--threads",
+        str(max(1, threads)),
     ]
     out = subprocess.check_output(cmd, text=True)
     m = re.search(r"CPU attention forward \(per-iter\):\s*([0-9.]+)\s*s", out)
@@ -141,6 +151,7 @@ def main():
         args.seed,
         args.warmup,
         args.iters,
+        args.threads,
     )
 
     # Run PyTorch timings with same shape

@@ -56,7 +56,8 @@ typedef struct {
 //   V              - Value tensor [batch, n_heads, seq_len, head_dim]
 //   out            - Output tensor [batch, n_heads, seq_len, head_dim]
 //   attn_weights   - Workspace base, sized at least
-//                     batch*n_heads*pad_seq_len(seq_len) floats
+//                     threads*pad_seq_len(seq_len) floats (multi-thread)
+//                     or 1*pad_seq_len(seq_len) (single-thread)
 //   dims           - Dimension specification
 //
 // Note: Internal row strides use stride_head_dim(head_dim). Logical math loops

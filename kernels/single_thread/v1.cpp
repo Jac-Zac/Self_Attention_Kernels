@@ -18,7 +18,7 @@
  * @param K         Key tensor [B, H, S, D]
  * @param V         Value tensor [B, H, S, D]
  * @param out       Output tensor [B, H, S, D]
- * @param attn_weights Workspace base [B*H*seq_len_padded]
+ * @param attn_weights Workspace base [seq_len_padded]
  * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
  */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
@@ -31,14 +31,12 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   size_t head_dim = dims.head_dim;
   const float scale = 1 / sqrtf(head_dim);
   const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
-  const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
 
   // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
-      float *aw = (float *)ASSUME_ALIGNED(
-          attn_weights + (b * num_heads + h) * seq_len_padded, ALIGNMENT);
+      float *aw = (float *)ASSUME_ALIGNED(attn_weights, ALIGNMENT);
 
       // Base offset for current batch and head: [b, h, :, :]
       size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +

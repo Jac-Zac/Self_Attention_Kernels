@@ -14,7 +14,8 @@
  * @param K         Key tensor [B, H, S, D]
  * @param V         Value tensor [B, H, S, D]
  * @param out       Output tensor [B, H, S, D]
- * @param attn_base Workspace base [B*H*seq_len_padded]
+ * @param attn_base Workspace base [threads*seq_len_padded] (multi) or
+ * [seq_len_padded] (single)
  * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
  */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
@@ -41,9 +42,10 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 #pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
-      // Per-(b,h) scratch slice
+      // Per-thread scratch slice
+      size_t thread_id = (size_t)omp_get_thread_num();
       float *aw = (float *)ASSUME_ALIGNED(
-          attn_base + (b * num_heads + h) * seq_len_padded, ALIGNMENT);
+          attn_base + thread_id * seq_len_padded, ALIGNMENT);
 
       // Base offset for current (b,h)
       const size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +

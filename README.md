@@ -26,14 +26,14 @@ Simple, learning-focused kernels:
 ## Test
 
 - `make test` runs the lightweight validation program that uses the same parser.
-- Python deps: use `uv` with `pyproject.toml`, or `pip install -r requirements.txt` if you don’t use uv.
+- Python deps: `source .venv/bin/activate` then `pip install -r requirements.txt` (or `uv sync`).
 - Artifacts written under `python_tests/`: `q.bin`, `k.bin`, `v.bin`, `out.bin`, `meta.json`.
 - CUDA tests not implemented yet.
 
 ## Benchmark
 
 - Easiest: `make benchmark` builds and runs preset sizes, printing timing lines for each version.
-- OpenMP threads: set `OMP_NUM_THREADS`, e.g. `OMP_NUM_THREADS=8 make benchmark`.
+- Threads: pass `--threads N` to the binary (benchmark script forwards it) and/or set `OMP_NUM_THREADS`.
 - Timings are reported in milliseconds via `timing.h`.
 
 ## Project Structure

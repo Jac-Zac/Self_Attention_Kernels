@@ -8,11 +8,10 @@ endif
 NVCC = nvcc
 
 # CFLAGS = -O3 -march=native
-CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-unroll-loops
+CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
 # -mprefer-vector-width=512
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
-# CFLAGS = -O3 -march=native -fno-tree-loop-vectorize
-# CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros -fno-tree-loop-vectorize
+# -fno-tree-loop-vectorize
 # -flto
 CFLAGS += -flto
 # CFLAGS += -mveclibabi=svml
@@ -66,7 +65,7 @@ CUDA_VERSIONS := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 EXEC ?= cmhsa.out
 
 single:
-	$(CXX) $(CXXFLAGS) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
+	$(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
 
 multi:
 	$(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"multi\" -DVERSION_STR=\"$(VERSION)\" -o $(EXEC) main.cpp kernels/multi_thread/$(VERSION).cpp

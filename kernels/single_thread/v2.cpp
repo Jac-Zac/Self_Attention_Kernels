@@ -23,18 +23,16 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   size_t head_dim = dims.head_dim;
   const float scale = 1 / sqrtf(head_dim);
   const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
-  const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
 
   // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
-      float *aw = (float *)ASSUME_ALIGNED(
-          attn_weights + (b * num_heads + h) * seq_len_padded, ALIGNMENT);
+      float *aw = (float *)ASSUME_ALIGNED(attn_weights, ALIGNMENT);
 
       // Base offset for current batch and head: [b, h, :, :]
-      size_t bh_offset =
-          b * (num_heads * seq_len * head_dim_stride) + h * (seq_len * head_dim_stride);
+      size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
+                         h * (seq_len * head_dim_stride);
 
       // Process each query position
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {

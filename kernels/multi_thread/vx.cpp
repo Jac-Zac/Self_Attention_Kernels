@@ -33,8 +33,9 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 #pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
+      size_t thread_id = (size_t)omp_get_thread_num();
       float *attn_weights = (float *)ASSUME_ALIGNED(
-          attn_base + (b * num_heads + h) * seq_len_padded, ALIGNMENT);
+          attn_base + thread_id * seq_len_padded, ALIGNMENT);
 
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
         // Base offset for current batch and head: [b, h, :, :]

@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 // Default values that are resolved when using make ...
 #ifndef BACKEND
 #define BACKEND "unknown"
@@ -37,9 +41,30 @@ int main(int argc, char *argv[]) {
   int validate = cfg.validate;
   const char *validate_dir = cfg.validate_dir;
 
+  // Resolve thread count for per-thread workspace slices
+  int threads = cfg.threads;
+#ifdef _OPENMP
+  if (threads <= 0) {
+    threads = omp_get_max_threads();
+  }
+  if (threads < 1)
+    threads = 1;
+  omp_set_num_threads(threads);
+#else
+  if (threads <= 0) {
+    const char *env_threads = getenv("OMP_NUM_THREADS");
+    if (env_threads && env_threads[0] != '\0') {
+      int val = (int)strtol(env_threads, NULL, 10);
+      if (val > 0)
+        threads = val;
+    }
+  }
+  if (threads < 1)
+    threads = 1;
+#endif
   printf("backend=%s version=%s\n", BACKEND, VERSION_STR);
-  printf("batch=%zu n_heads=%zu seq_len=%zu head_dim=%zu\n", batch, n_heads,
-         seq_len, head_dim);
+  printf("batch=%zu n_heads=%zu seq_len=%zu head_dim=%zu threads=%d\n", batch,
+         n_heads, seq_len, head_dim, threads);
 
   // Setup dimensions
   AttentionDims dims = {batch, n_heads, seq_len, head_dim};
@@ -64,8 +89,10 @@ int main(int argc, char *argv[]) {
   err |= (ALIGNED_ALLOC_FLOAT(K, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(V, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(out, qkv_size) != 0);
-  // Per-(b,h) scratch slices: batch*n_heads*seq_len_padded
-  err |= (ALIGNED_ALLOC_FLOAT(workspace, batch * n_heads * seq_len_padded) != 0);
+
+  // Per-thread scratch slices: threads * seq_len_padded
+  err |=
+      (ALIGNED_ALLOC_FLOAT(workspace, (size_t)threads * seq_len_padded) != 0);
 
   // Check allocations
   if (err) {
@@ -84,7 +111,7 @@ int main(int argc, char *argv[]) {
   out = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
   workspace = (float *)ASSUME_ALIGNED(workspace, ALIGNMENT);
 
-  // Initialize with random small values (typical for attention)
+  // Initialize with random small values
   srand(seed); // Fixed seed for reproducibility
   for (size_t i = 0; i < qkv_size; i++) {
     Q[i] = ((float)rand() / (float)RAND_MAX) * 0.1f - 0.05f; // [-0.05, 0.05]

@@ -15,12 +15,14 @@ typedef struct RunConfig {
   const char *validate_dir;
   int warmup;
   int iters;
+  int threads; // 0 -> use OMP max or 1 if no OMP
 } RunConfig;
 
 inline void print_usage() {
   fprintf(stderr,
           "Usage: program [--validate-outdir DIR] [--batch N] [--n_heads N] "
-          "[--seq_len N] [--head_dim N] [--seed N] [--warmup N] [--iters N]\n");
+          "[--seq_len N] [--head_dim N] [--seed N] [--warmup N] [--iters N] "
+          "[--threads N]\n");
 }
 
 inline int parse_args(int argc, char **argv, RunConfig *cfg) {
@@ -34,6 +36,7 @@ inline int parse_args(int argc, char **argv, RunConfig *cfg) {
   cfg->validate_dir = "python_test";
   cfg->warmup = 5;
   cfg->iters = 25;
+  cfg->threads = 0; // resolved later in main
 
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
@@ -86,6 +89,12 @@ inline int parse_args(int argc, char **argv, RunConfig *cfg) {
         return 1;
       }
       cfg->iters = (int)strtol(argv[++i], NULL, 10);
+    } else if (strcmp(arg, "--threads") == 0) {
+      if (i + 1 >= argc) {
+        print_usage();
+        return 1;
+      }
+      cfg->threads = (int)strtol(argv[++i], NULL, 10);
     } else {
       fprintf(stderr, "Error: unknown flag '%s'\n", arg);
       print_usage();
