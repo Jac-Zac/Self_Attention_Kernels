@@ -25,8 +25,7 @@ EXEC=./cmhsa.out
 
 # =======================================================
 # Set OpenMP environment variables
-# export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-export OMP_NUM_THREADS=1
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OMP_PLACES=cores
 # export OMP_PROC_BIND=spread
 export OMP_PROC_BIND=close
@@ -37,7 +36,7 @@ TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
 # Define the arguments for the executable
 # A medium-sized grid suitable for a single-node run
-# ARGS="--batch 2 --n_heads 4 --seq_len 128 --head_dim 64"
+ARGS="--batch 8 --n_heads 16 --seq_len 1024 --head_dim 64"
 
 # Print run information
 echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
@@ -74,16 +73,13 @@ echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 # Compile and run the benchmark
 # make benchmark
 
-make multi DEBUG=1 VERSION=v1
+make multi DEBUG=1 VERSION=v3
 
 # 3. Run Microarchitecture Exploration
 # This tells you if your Attention kernel is "Retiring" instructions
 # or stalled by memory/frontend issues.
 vtune -collect uarch-exploration -result-dir ${RESULT_DIR}_uarch \
-        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 512 --head_dim 128
-
-# make benchmark
-make DEBUG=1 VERSION=v1
+        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 1024 --head_dim 64
 
 # 3. Run Microarchitecture Exploration
 # This tells you if your Attention kernel is "Retiring" instructions
@@ -91,6 +87,6 @@ make DEBUG=1 VERSION=v1
 # 4. (Optional) Run Memory Access analysis
 # This will specifically pinpoint why you had that 87% cache miss rate earlier.
 vtune -collect memory-access -result-dir ${RESULT_DIR}_mem \
-        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 512 --head_dim 128
+        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 1024 --head_dim 64
 
 perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS

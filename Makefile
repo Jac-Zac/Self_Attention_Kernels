@@ -15,11 +15,11 @@ CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-o
 # -flto
 CFLAGS += -flto
 # CFLAGS += -mveclibabi=svml
-OPENMP = -fopenmp
+OPENMP = -fopenmp-simd -fopenmp
 
 # Auto-select warning flags based on compiler
 # Default warnings (GCC)
-WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic 
+WARN_GCC = -std=c++20 -Wall -Wextra -Wpedantic -Wno-unknown-pragmas
 # Clang-specific recommended warnings
 WARN_CLANG = -Wall -Wextra -Wpedantic -Wconversion
 
@@ -109,7 +109,7 @@ else
 endif
 
 benchmark:
-	@batch=4; heads=8; seqlen=1024; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
+	@batch=4; heads=8; seqlen=1024; headdim=64; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 	for ver in $(BENCH_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
 	  src=$(BENCH_SRC_DIR)/$$ver.cpp; \

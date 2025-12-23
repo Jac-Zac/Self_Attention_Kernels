@@ -177,10 +177,10 @@ def main():
     print(
         f"\nShapes: B={args.batch} H={args.n_heads} S={args.seq_len} D={args.head_dim}"
     )
-    # print(f"Naive PyTorch     (per-iter): {naive_t_per_iter:.6f} s")
+    print(f"Naive PyTorch     (per-iter): {naive_t_per_iter:.6f} s")
     print(f"Optimized PyTorch (per-iter): {optimized_t_per_iter:.6f} s")
     if c_per_iter > 0.0:
-        # print(f"Speedup (Naive Torch/C++): {naive_t_per_iter / c_per_iter:.3f}x")
+        print(f"Speedup (Naive Torch/C++): {naive_t_per_iter / c_per_iter:.3f}x")
         print(
             f"Speedup (Optimized Torch/C++): {optimized_t_per_iter / c_per_iter:.3f}x\n"
         )
