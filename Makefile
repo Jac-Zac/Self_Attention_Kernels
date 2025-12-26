@@ -119,7 +119,7 @@ benchmark:
 	  bins="$$bins ./$$bin"; \
 	done; \
 	OMP_NUM_THREADS=$$threads MKL_NUM_THREADS=$$threads OPENBLAS_NUM_THREADS=$$threads NUMEXPR_NUM_THREADS=$$threads \
-	  uv run python3 python_tests/benchmark_all.py \
+	  python3 python_tests/benchmark_all.py \
 	    --bins $$bins \
 	    --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim \
 	    --seed $$seed --warmup $$warmup --iters $$iters --threads $$threads

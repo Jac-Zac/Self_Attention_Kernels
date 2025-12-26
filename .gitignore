@@ -44,5 +44,8 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Python things
+*.py[cod]
+
 # macOS debug symbols
 **.dSYM

@@ -90,9 +90,13 @@ int main(int argc, char *argv[]) {
   err |= (ALIGNED_ALLOC_FLOAT(V, qkv_size) != 0);
   err |= (ALIGNED_ALLOC_FLOAT(out, qkv_size) != 0);
 
-  // Per-thread scratch slices: threads * seq_len_padded
+  // Per-thread scratch slices: threads * WORKSPACE_QUERY_BATCH * seq_len_padded
+  // Multiplier accounts for kernels that batch multiple queries (vx uses 4, v2
+  // uses 2)
+  const size_t WORKSPACE_QUERY_BATCH = 4;
   err |=
-      (ALIGNED_ALLOC_FLOAT(workspace, (size_t)threads * seq_len_padded) != 0);
+      (ALIGNED_ALLOC_FLOAT(workspace, (size_t)threads * WORKSPACE_QUERY_BATCH *
+                                          seq_len_padded) != 0);
 
   // Check allocations
   if (err) {
