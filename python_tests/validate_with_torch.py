@@ -9,14 +9,18 @@ Float32-only PyTorch validator for CMHSA.
 """
 
 import argparse
-import json
-import subprocess
+
+# Allow imports when running as a script from the repo root
+import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+sys.path.insert(0, str(Path(__file__).parent))
+from utils import load_artifacts, run_c_binary
 
 
 def parse_args():
@@ -35,39 +39,6 @@ def parse_args():
     return p.parse_args()
 
 
-def run_bin(
-    bin_path: str, outdir: Path, B: int, H: int, S: int, D: int, seed: int, threads: int
-):
-    cmd = [
-        bin_path,
-        "--validate-outdir",
-        str(outdir),
-        "--batch",
-        str(B),
-        "--n_heads",
-        str(H),
-        "--seq_len",
-        str(S),
-        "--head_dim",
-        str(D),
-        "--seed",
-        str(seed),
-        "--threads",
-        str(max(1, threads)),
-    ]
-    subprocess.run(cmd, check=True)
-
-
-def read_meta(meta_path: Path):
-    with open(meta_path, "r") as f:
-        return json.load(f)
-
-
-def read_bin(path: Path, shape):
-    arr = np.fromfile(path, dtype=np.float32)
-    return arr.reshape(shape)
-
-
 def main():
     args = parse_args()
 
@@ -75,40 +46,34 @@ def main():
         outdir = Path(tmpdir)
 
         # Run C binary to generate artifacts
-        run_bin(
+        run_c_binary(
             args.bin,
-            outdir,
             args.batch,
             args.n_heads,
             args.seq_len,
             args.head_dim,
             args.seed,
             args.threads,
+            validate_outdir=outdir,
         )
 
-        meta = read_meta(outdir / "meta.json")
-        B = int(meta["batch"])
-        H = int(meta["n_heads"])
-        S = int(meta["seq_len"])
-        D = int(meta["head_dim"])
-
-        Q = torch.from_numpy(read_bin(outdir / "q.bin", (B, H, S, D))).to(torch.float32)
-        K = torch.from_numpy(read_bin(outdir / "k.bin", (B, H, S, D))).to(torch.float32)
-        V = torch.from_numpy(read_bin(outdir / "v.bin", (B, H, S, D))).to(torch.float32)
-        Out_c = read_bin(outdir / "out.bin", (B, H, S, D))
+        # Load artifacts
+        meta, Q, K, V, out_c = load_artifacts(outdir)
 
         # Compute PyTorch causal attention (torch applies 1/sqrt(D) internally)
-        Out_t = F.scaled_dot_product_attention(
+        out_torch = F.scaled_dot_product_attention(
             Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=True
         )
-        Out_t = Out_t.detach().cpu().numpy()
 
         # Compare
-        diff = np.abs(Out_c - Out_t)
-        rel = diff / (np.maximum(np.abs(Out_t), 1e-12))
+        out_c_np = out_c.numpy()
+        out_torch_np = out_torch.detach().cpu().numpy()
+
+        diff = np.abs(out_c_np - out_torch_np)
+        rel = diff / (np.maximum(np.abs(out_torch_np), 1e-12))
         max_abs = float(diff.max())
         max_rel = float(rel.max())
-        ok = np.allclose(Out_c, Out_t, rtol=args.rtol, atol=args.atol)
+        ok = np.allclose(out_c_np, out_torch_np, rtol=args.rtol, atol=args.atol)
 
         print(
             f"Validation: max_abs={max_abs:.6g} max_rel={max_rel:.6g} rtol={args.rtol} atol={args.atol}"

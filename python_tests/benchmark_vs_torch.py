@@ -1,17 +1,31 @@
 #!/usr/bin/env python3
+"""
+Fair CPU benchmark: C kernel vs PyTorch.
+
+Key principles:
+- Same Q/K/V values for both (loaded from C's artifacts)
+- Identical thread counts (no hidden parallelism)
+- Correctness assertion before reporting speedup
+"""
+
 import argparse
-import os
 import re
-import subprocess
+
+# Allow imports when running as a script from the repo root
+import sys
+import tempfile
 import time
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 
+sys.path.insert(0, str(Path(__file__).parent))
+from utils import load_artifacts, run_c_binary
+
 
 def parse_args():
-    p = argparse.ArgumentParser(description="CPU benchmark: cmhsa vs PyTorch")
+    p = argparse.ArgumentParser(description="Fair CPU benchmark: C kernel vs PyTorch")
     p.add_argument(
         "--bin", type=str, default="./cmhsa.out", help="Path to built cmhsa binary"
     )
@@ -23,167 +37,158 @@ def parse_args():
     p.add_argument("--warmup", type=int, default=5)
     p.add_argument("--iters", type=int, default=25)
     p.add_argument(
-        "--threads", type=int, default=1, help="PyTorch intraop thread count (CPU)"
+        "--threads", type=int, default=1, help="Thread count for both C and PyTorch"
+    )
+    p.add_argument(
+        "--atol", type=float, default=1e-4, help="Absolute tolerance for correctness"
+    )
+    p.add_argument(
+        "--rtol", type=float, default=1e-4, help="Relative tolerance for correctness"
     )
     return p.parse_args()
 
 
-def run_c_binary(
-    bin_path: str,
-    B: int,
-    H: int,
-    S: int,
-    D: int,
-    seed: int,
-    warmup: int,
-    iters: int,
-    threads: int,
-) -> float:
-    cmd = [
-        bin_path,
-        "--batch",
-        str(B),
-        "--n_heads",
-        str(H),
-        "--seq_len",
-        str(S),
-        "--head_dim",
-        str(D),
-        "--seed",
-        str(seed),
-        "--warmup",
-        str(warmup),
-        "--iters",
-        str(iters),
-        "--threads",
-        str(max(1, threads)),
-    ]
-    out = subprocess.check_output(cmd, text=True)
-    m = re.search(r"CPU attention forward \(per-iter\):\s*([0-9.]+)\s*s", out)
+def parse_c_time(output: str) -> float:
+    """Extract per-iteration time in seconds from C binary output."""
+    m = re.search(r"CPU attention forward \(per-iter\):\s*([0-9.]+)\s*s", output)
     if not m:
         raise RuntimeError(
-            "Could not parse per-iter time from binary output.\nOutput was:\n" + out
+            "Could not parse per-iter time from binary output.\nOutput was:\n" + output
         )
     return float(m.group(1))
 
 
 @torch.no_grad()
-def naive_scaled_dot_product_attention(Q, K, V, is_causal=True):
-    # Naive implementation: Q @ K^T / sqrt(d_k), causal mask, softmax, @ V
+def naive_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor) -> torch.Tensor:
+    """Naive scaled dot-product attention with causal mask."""
     scale = Q.shape[-1] ** -0.5
     attn = torch.matmul(Q, K.transpose(-2, -1)) * scale
-    if is_causal:
-        S = Q.shape[-2]
-        mask = torch.triu(
-            torch.ones(S, S, device=Q.device, dtype=torch.bool), diagonal=1
-        )
-        attn = attn.masked_fill(mask, float("-inf"))
+    S = Q.shape[-2]
+    mask = torch.triu(torch.ones(S, S, device=Q.device, dtype=torch.bool), diagonal=1)
+    attn = attn.masked_fill(mask, float("-inf"))
     attn = F.softmax(attn, dim=-1)
     return torch.matmul(attn, V)
 
 
 @torch.no_grad()
 def bench_naive_torch(
-    B: int, H: int, S: int, D: int, seed: int, warmup: int, iters: int
-) -> float:
-    torch.manual_seed(seed)
-    # Q, K, V match layout used by your validator and binary
-    Q = torch.randn(B, H, S, D, dtype=torch.float32, device="cpu").contiguous()
-    K = torch.randn(B, H, S, D, dtype=torch.float32, device="cpu").contiguous()
-    V = torch.randn(B, H, S, D, dtype=torch.float32, device="cpu").contiguous()
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    warmup: int,
+    iters: int,
+) -> tuple[torch.Tensor, float]:
+    """
+    Benchmark naive attention implementation on the given Q/K/V.
+    Returns (output tensor, per-iteration time in seconds).
+    """
+    out = None
 
-    # Warm-up iterations (not timed)
+    # Warmup
     for _ in range(warmup):
-        naive_scaled_dot_product_attention(Q, K, V, is_causal=True)
+        naive_attention(Q, K, V)
 
+    # Timed iterations
     t0 = time.perf_counter()
     for _ in range(iters):
-        naive_scaled_dot_product_attention(Q, K, V, is_causal=True)
+        out = naive_attention(Q, K, V)
     t1 = time.perf_counter()
 
-    return (t1 - t0) / float(iters)
+    assert out is not None
+    return out, (t1 - t0) / iters
 
 
 @torch.no_grad()
-def bench_optimized_torch(
-    B: int, H: int, S: int, D: int, seed: int, warmup: int, iters: int
-) -> float:
-    torch.manual_seed(seed)
-    # Q, K, V match layout used by your validator and binary
-    Q = torch.randn(B, H, S, D, dtype=torch.float32, device="cpu").contiguous()
-    K = torch.randn(B, H, S, D, dtype=torch.float32, device="cpu").contiguous()
-    V = torch.randn(B, H, S, D, dtype=torch.float32, device="cpu").contiguous()
+def bench_torch(
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    warmup: int,
+    iters: int,
+) -> tuple[torch.Tensor, float]:
+    """
+    Benchmark PyTorch scaled_dot_product_attention on the given Q/K/V.
+    Returns (output tensor, per-iteration time in seconds).
+    """
+    out = None
 
-    # Warm-up iterations (not timed)
+    # Warmup
     for _ in range(warmup):
         F.scaled_dot_product_attention(
             Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=True
         )
 
+    # Timed iterations
     t0 = time.perf_counter()
     for _ in range(iters):
-        F.scaled_dot_product_attention(
+        out = F.scaled_dot_product_attention(
             Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=True
         )
     t1 = time.perf_counter()
 
-    return (t1 - t0) / float(iters)
+    assert out is not None
+    return out, (t1 - t0) / iters
 
 
 def main():
     args = parse_args()
 
-    # For fairness, control PyTorch threads here. You should also set
-    # shell env for BLAS backends before launching this script, e.g.:
-    # OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-    # This script controls PyTorch intraop and interop threads only.
+    # Strict thread control: no hidden parallelism for PyTorch
     torch.set_num_threads(max(1, args.threads))
-    # A conservative interop setting; adjust if you prefer
-    torch.set_num_interop_threads(max(1, args.threads // 2))
+    torch.set_num_interop_threads(1)
 
-    # Run C++ binary once; it reports warmups/iters internally and prints per-iter seconds
-    c_per_iter = run_c_binary(
-        args.bin,
-        args.batch,
-        args.n_heads,
-        args.seq_len,
-        args.head_dim,
-        args.seed,
-        args.warmup,
-        args.iters,
-        args.threads,
-    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        outdir = Path(tmpdir)
 
-    # Run PyTorch timings with same shape
-    naive_t_per_iter = bench_naive_torch(
-        args.batch,
-        args.n_heads,
-        args.seq_len,
-        args.head_dim,
-        args.seed,
-        args.warmup,
-        args.iters,
-    )
-    optimized_t_per_iter = bench_optimized_torch(
-        args.batch,
-        args.n_heads,
-        args.seq_len,
-        args.head_dim,
-        args.seed,
-        args.warmup,
-        args.iters,
-    )
-
-    print(
-        f"\nShapes: B={args.batch} H={args.n_heads} S={args.seq_len} D={args.head_dim}"
-    )
-    print(f"Naive PyTorch     (per-iter): {naive_t_per_iter:.6f} s")
-    print(f"Optimized PyTorch (per-iter): {optimized_t_per_iter:.6f} s")
-    if c_per_iter > 0.0:
-        print(f"Speedup (Naive Torch/C++): {naive_t_per_iter / c_per_iter:.3f}x")
-        print(
-            f"Speedup (Optimized Torch/C++): {optimized_t_per_iter / c_per_iter:.3f}x\n"
+        # Run C binary to generate artifacts and get timing
+        c_output = run_c_binary(
+            args.bin,
+            args.batch,
+            args.n_heads,
+            args.seq_len,
+            args.head_dim,
+            args.seed,
+            args.threads,
+            warmup=args.warmup,
+            iters=args.iters,
+            validate_outdir=outdir,
         )
+        c_per_iter = parse_c_time(c_output)
+
+        # Load C's Q/K/V/out for fair comparison
+        meta, Q, K, V, out_c = load_artifacts(outdir)
+
+        # Benchmark naive PyTorch on the exact same inputs
+        out_naive, naive_per_iter = bench_naive_torch(Q, K, V, args.warmup, args.iters)
+
+        # Correctness assertion: C and naive PyTorch must produce the same output
+        assert torch.allclose(out_naive, out_c, rtol=args.rtol, atol=args.atol), (
+            f"Output mismatch between C and naive PyTorch! "
+            f"max_abs_err={(out_naive - out_c).abs().max().item():.6g}"
+        )
+
+        # Benchmark optimized PyTorch on the exact same inputs
+        out_torch, torch_per_iter = bench_torch(Q, K, V, args.warmup, args.iters)
+
+        # Correctness assertion: C and PyTorch must produce the same output
+        assert torch.allclose(out_torch, out_c, rtol=args.rtol, atol=args.atol), (
+            f"Output mismatch between C and PyTorch! "
+            f"max_abs_err={(out_torch - out_c).abs().max().item():.6g}"
+        )
+
+        # Report results
+        print(
+            f"Shapes: B={args.batch} H={args.n_heads} S={args.seq_len} D={args.head_dim}"
+        )
+        print(f"Threads: {args.threads}")
+        print(f"C kernel      (per-iter): {c_per_iter:.6f} s")
+        print(f"Naive PyTorch (per-iter): {naive_per_iter:.6f} s")
+        print(f"Torch SDPA    (per-iter): {torch_per_iter:.6f} s")
+
+        speedup_naive = naive_per_iter / c_per_iter
+        speedup_sdpa = torch_per_iter / c_per_iter
+        print(f"Speedup (Naive / C): {speedup_naive:.2f}x")
+        print(f"Speedup (SDPA / C):  {speedup_sdpa:.2f}x")
 
 
 if __name__ == "__main__":

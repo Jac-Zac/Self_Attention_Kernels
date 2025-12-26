@@ -12,16 +12,15 @@ Simple, learning-focused kernels:
 - Multi: `make multi`
 - CUDA: `make cuda`
 - Choose version: `make single VERSION=v0`
-- Choose output name/extension: `make single EXEC=cmhsa.out`
 
 ## Run
 
-- `./cmhsa` runs with defaults.
+- `./cmhsa.out` runs with defaults.
 - Flags (errors on unknown/missing values):
   - `--validate-outdir DIR` (writes Q/K/V/out and meta for Python)
   - `--batch N` `--n_heads N` `--seq_len N` `--head_dim N`
   - `--seed N` `--warmup N` `--iters N`
-- Causal is always enabled.
+- Causal attention is always enabled.
 
 ## Test
 
