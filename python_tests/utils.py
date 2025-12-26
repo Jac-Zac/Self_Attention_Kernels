@@ -4,6 +4,7 @@ Shared utilities for CMHSA validation and benchmarking.
 """
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -80,3 +81,13 @@ def load_artifacts(
     out_c = _load_tensor(outdir / "out.bin", shape)
 
     return meta, Q, K, V, out_c
+
+
+def parse_c_time(output: str) -> float:
+    """Extract per-iteration time in seconds from C binary output."""
+    m = re.search(r"CPU attention forward \(per-iter\):\s*([0-9.]+)\s*s", output)
+    if not m:
+        raise RuntimeError(
+            "Could not parse per-iter time from binary output.\nOutput was:\n" + output
+        )
+    return float(m.group(1))

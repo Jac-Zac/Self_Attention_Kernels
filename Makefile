@@ -110,17 +110,20 @@ endif
 
 benchmark:
 	@batch=4; heads=8; seqlen=1024; headdim=64; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
+	bins=""; \
 	for ver in $(BENCH_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
 	  src=$(BENCH_SRC_DIR)/$$ver.cpp; \
 	  echo "Building $$bin (backend=$(BENCH_BACKEND), version=$$ver)"; \
 	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" -o $$bin main.cpp $$src; \
-	  printf "$$ver: "; \
-	  OMP_NUM_THREADS=$$threads ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --seed $$seed --warmup $$warmup --iters $$iters | grep "CPU attention forward" || true; \
-	  OMP_NUM_THREADS=$$threads MKL_NUM_THREADS=$$threads OPENBLAS_NUM_THREADS=$$threads NUMEXPR_NUM_THREADS=$$threads \
-	     python3 python_tests/benchmark_vs_torch.py --bin ./$$bin --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim --warmup $$warmup --iters $$iters --threads $$threads || true; \
-	done
-	make clean
+	  bins="$$bins ./$$bin"; \
+	done; \
+	OMP_NUM_THREADS=$$threads MKL_NUM_THREADS=$$threads OPENBLAS_NUM_THREADS=$$threads NUMEXPR_NUM_THREADS=$$threads \
+	  uv run python3 python_tests/benchmark_all.py \
+	    --bins $$bins \
+	    --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim \
+	    --seed $$seed --warmup $$warmup --iters $$iters --threads $$threads
+	@$(MAKE) clean
 
 
 test:
@@ -135,7 +138,7 @@ test:
 	    $(CXX) $(CXXFLAGS) $(OPENMP) \
 	      -DBACKEND=\"$$backend\" -DVERSION_STR=\"$$ver\" \
 	      -o $(EXEC) main.cpp kernels/$$backend\_thread/$$ver.cpp; \
-	    python3 python_tests/validate_with_torch.py --bin ./$(EXEC) \
+	    uv run python3 python_tests/validate_with_torch.py --bin ./$(EXEC) \
 	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337; \
 	  done; \
 	done
@@ -154,7 +157,7 @@ help:
 	@echo "  multi      Build multi-core backend (OpenMP)"
 	@echo "  cuda       Build CUDA backend (kernel stubbed)"
 	@echo "  test       Validate all single-thread versions (float32)"
-	@echo "  benchmark  Benchmark discovered versions (BENCH_BACKEND=single|multi)"
+	@echo "  benchmark  Benchmark all kernel versions against PyTorch (runs PyTorch once)"
 	@echo "  clean      Remove build/test artifacts"
 	@echo ""
 	@echo "Variables:"
@@ -164,6 +167,9 @@ help:
 	@echo "  CXX=clang++    Use clang++ instead of g++"
 	@echo "  BENCH_BACKEND  Backend for benchmark: single (default) or multi"
 	@echo "  BENCH_THREADS  Threads used for both C++ and PyTorch benchmark"
+	@echo ""
+	@echo "Benchmark outputs a text table by default. Use --json flag in"
+	@echo "python_tests/benchmark_all.py directly for JSON output."
 
 # Clean
 clean:
