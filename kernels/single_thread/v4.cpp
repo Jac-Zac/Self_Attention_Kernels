@@ -63,13 +63,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const float scale = 1.0f / sqrtf((float)head_dim);
-  const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
-
-  // Tell the compiler these pointers are aligned for better vectorization
-  const float *q_aligned = (const float *)ASSUME_ALIGNED(Q, ALIGNMENT);
-  const float *k_aligned = (const float *)ASSUME_ALIGNED(K, ALIGNMENT);
-  const float *v_aligned = (const float *)ASSUME_ALIGNED(V, ALIGNMENT);
-  float *out_aligned = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
 
   // Temporary storage for scores within a tile.
   // This is small enough to stay in L1 cache.
@@ -78,15 +71,13 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
       // Offset to the start of this (batch, head) slice
-      const size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
-                               h * (seq_len * head_dim_stride);
+      const size_t bh_offset =
+          b * (num_heads * seq_len * head_dim) + h * (seq_len * head_dim);
 
       // Process each query position
       for (size_t i = 0; i < seq_len; i++) {
-        const float *q_row = (const float *)ASSUME_ALIGNED(
-            &q_aligned[bh_offset + i * head_dim_stride], ALIGNMENT);
-        float *out_row = (float *)ASSUME_ALIGNED(
-            &out_aligned[bh_offset + i * head_dim_stride], ALIGNMENT);
+        const float *q_row = &Q[bh_offset + i * head_dim];
+        float *out_row = &out[bh_offset + i * head_dim];
 
         // Causal mask: query at position i can only attend to keys 0..i
         const size_t num_keys = i + 1;
@@ -112,8 +103,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
           for (size_t t = 0; t < tile_size; t++) {
             const size_t k = k_start + t;
-            const float *k_row = (const float *)ASSUME_ALIGNED(
-                &k_aligned[bh_offset + k * head_dim_stride], ALIGNMENT);
+            const float *k_row = &K[bh_offset + k * head_dim];
 
             float dot = 0.0f;
 #pragma omp simd reduction(+ : dot)
@@ -156,8 +146,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           // Final normalization happens after all tiles are processed.
           for (size_t t = 0; t < tile_size; t++) {
             const size_t k = k_start + t;
-            const float *v_row = (const float *)ASSUME_ALIGNED(
-                &v_aligned[bh_offset + k * head_dim_stride], ALIGNMENT);
+            const float *v_row = &V[bh_offset + k * head_dim];
             const float weight = tile_scores[t];
 
 #pragma omp simd

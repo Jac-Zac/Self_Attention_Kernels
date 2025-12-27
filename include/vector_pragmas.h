@@ -1,10 +1,5 @@
 #pragma once
 
-// Vector padding width for AVX-512 (floats)
-#ifndef VEC_PADDING
-#define VEC_PADDING 16
-#endif
-
 // the two following macros are useful only to
 // produce pragma strings in the source files
 //
@@ -24,10 +19,6 @@
  * LOOPS
  *   - LOOP_UNROLL
  *   - LOOP_UNROLL_N(n)
- *
- * ALIGNMENT
- *   - ASSUME_ALIGNED
- *   - ATTRIBUTE_ALIGNED
  * =========================================================================
  */
 
@@ -45,9 +36,6 @@
 #define LOOP_UNROLL _Pragma("unroll")
 #define LOOP_UNROLL_N(N) _DO_PRAGMA(unroll N)
 
-#define ASSUME_ALIGNED(V, A) ((__typeof__(V))__builtin_assume_aligned((V), (A)))
-#define ATTRIBUTE_ALIGNED(A) __attribute__((aligned((A))))
-
 /* ----------------------------- CLANG ----------------------------------- */
 #elif defined(__clang__)
 
@@ -58,9 +46,6 @@
 #define LOOP_UNROLL _DO_PRAGMA(clang loop interleave(enable))
 #define LOOP_UNROLL_N(N) _DO_PRAGMA(clang loop interleave_count(N))
 
-#define ASSUME_ALIGNED(V, A) ((__typeof__(V))__builtin_assume_aligned((V), (A)))
-#define ATTRIBUTE_ALIGNED(A) __attribute__((__aligned__((A))))
-
 /* ------------------------------ GCC ------------------------------------ */
 #elif defined(__GNUC__)
 
@@ -70,9 +55,6 @@
 
 #define LOOP_UNROLL
 #define LOOP_UNROLL_N(N) _DO_PRAGMA(GCC unroll N)
-
-#define ASSUME_ALIGNED(V, A) ((__typeof__(V))__builtin_assume_aligned((V), (A)))
-#define ATTRIBUTE_ALIGNED(A) __attribute__((aligned((A))))
 
 /* --------------------------- OTHER ------------------------------------- */
 #elif defined(__CC_ARM)

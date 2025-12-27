@@ -13,8 +13,8 @@
  * - Uses #pragma omp simd hints for inner loops to enable vectorization
  * - Otherwise follows the same algorithm as single-threaded v1
  *
- * Thread workspace: Each thread needs seq_len_padded floats for attention
- * weights. Total workspace: threads * seq_len_padded floats.
+ * Thread workspace: Each thread needs seq_len floats for attention
+ * weights. Total workspace: threads * seq_len floats.
  */
 
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
@@ -26,8 +26,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const float scale = 1.0f / sqrtf((float)head_dim);
-  const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
-  const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
 
 #pragma omp parallel for
   for (size_t b = 0; b < batch_size; b++) {
@@ -35,17 +33,17 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
       // Each thread gets its own scratch space
       size_t thread_id = (size_t)omp_get_thread_num();
-      float *aw = attn_base + thread_id * seq_len_padded;
+      float *aw = attn_base + thread_id * seq_len;
 
-      size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
-                         h * (seq_len * head_dim_stride);
+      size_t bh_offset =
+          b * (num_heads * seq_len * head_dim) + h * (seq_len * head_dim);
 
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
-        size_t query_offset = bh_offset + query_pos * head_dim_stride;
+        size_t query_offset = bh_offset + query_pos * head_dim;
 
         // Step 1: Compute QK^T scores
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          size_t key_offset = bh_offset + key_pos * head_dim_stride;
+          size_t key_offset = bh_offset + key_pos * head_dim;
           float dot_product = 0.0f;
 
 #pragma omp simd reduction(+ : dot_product)
@@ -70,7 +68,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         // Step 3: Weighted sum of values
-        size_t output_offset = bh_offset + query_pos * head_dim_stride;
+        size_t output_offset = bh_offset + query_pos * head_dim;
 
 #pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
@@ -78,7 +76,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          size_t value_offset = bh_offset + key_pos * head_dim_stride;
+          size_t value_offset = bh_offset + key_pos * head_dim;
           float weight = aw[key_pos] / sum_exp;
 
 #pragma omp simd

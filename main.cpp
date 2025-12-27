@@ -3,7 +3,6 @@
 #include "include/parser.hpp"
 #include "include/timing.h"
 #include "include/utils.hpp"
-#include "include/vector_pragmas.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -85,34 +84,23 @@ int main(int argc, char *argv[]) {
   // Setup dimensions
   AttentionDims dims = {batch, n_heads, seq_len, head_dim};
 
-  // Compute padded dimensions for strides and scratch
-  const size_t head_dim_padded = round_up_pow2(head_dim, VEC_PADDING);
-  const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
+  // Calculate buffer sizes (contiguous, no padding)
+  size_t qkv_size = batch * n_heads * seq_len * head_dim;
+  size_t stats_size = batch * n_heads * seq_len;
 
-  // Calculate buffer sizes (use padded strides for storage)
-  size_t qkv_size = batch * n_heads * seq_len * head_dim_padded;
-  size_t stats_size = batch * n_heads * seq_len; // logical stats count
+  // Allocate input/output tensors
+  float *RESTRICT Q = (float *)malloc(sizeof(float) * qkv_size);
+  float *RESTRICT K = (float *)malloc(sizeof(float) * qkv_size);
+  float *RESTRICT V = (float *)malloc(sizeof(float) * qkv_size);
+  float *RESTRICT out = (float *)malloc(sizeof(float) * qkv_size);
 
-  // Allocate input/output tensors with aligned memory via macros
-  float *RESTRICT Q = NULL;
-  float *RESTRICT K = NULL;
-  float *RESTRICT V = NULL;
-  float *RESTRICT out = NULL;
-  float *RESTRICT workspace = NULL;
-
-  int err = 0;
-  err |= (ALIGNED_ALLOC_FLOAT(Q, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(K, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(V, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(out, qkv_size) != 0);
-
-  // Per-thread scratch slices: threads * seq_len_padded
-  err |=
-      (ALIGNED_ALLOC_FLOAT(workspace, (size_t)threads * seq_len_padded) != 0);
+  // Per-thread scratch slices: threads * seq_len
+  float *RESTRICT workspace =
+      (float *)malloc(sizeof(float) * (size_t)threads * seq_len);
 
   // Check allocations
-  if (err) {
-    fprintf(stderr, "Error: aligned memory allocation failed\n");
+  if (!Q || !K || !V || !out || !workspace) {
+    fprintf(stderr, "Error: memory allocation failed\n");
     free(Q);
     free(K);
     free(V);
@@ -120,12 +108,6 @@ int main(int argc, char *argv[]) {
     free(workspace);
     return 1;
   }
-
-  Q = (float *)ASSUME_ALIGNED(Q, ALIGNMENT);
-  K = (float *)ASSUME_ALIGNED(K, ALIGNMENT);
-  V = (float *)ASSUME_ALIGNED(V, ALIGNMENT);
-  out = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
-  workspace = (float *)ASSUME_ALIGNED(workspace, ALIGNMENT);
 
   // Initialize with random small values
   srand(seed); // Fixed seed for reproducibility

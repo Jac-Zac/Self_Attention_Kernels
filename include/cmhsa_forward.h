@@ -3,15 +3,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Logical-to-physical stride helpers
-// These functions compute the padded stride for vectorization-friendly memory access
-static inline size_t stride_head_dim(size_t head_dim) {
-  return round_up_pow2(head_dim, VEC_PADDING);
-}
-static inline size_t pad_seq_len(size_t seq_len) {
-  return round_up_pow2(seq_len, VEC_PADDING);
-}
-
 // ============================================================================
 // Multi-Head Self-Attention Forward Pass
 // ============================================================================
@@ -48,7 +39,7 @@ typedef struct {
 // Algorithm:
 //   For each head h:
 //     1. scores = (Q_h @ K_h^T) * scale
-//     2. probs = softmax(scores)  [numerically stable via softmax_max/lse]
+//     2. probs = softmax(scores)
 //     3. out_h = probs @ V_h
 //
 // Parameters:
@@ -56,13 +47,8 @@ typedef struct {
 //   K              - Key tensor [batch, n_heads, seq_len, head_dim]
 //   V              - Value tensor [batch, n_heads, seq_len, head_dim]
 //   out            - Output tensor [batch, n_heads, seq_len, head_dim]
-//   attn_weights   - Workspace base, sized at least
-//                     threads*pad_seq_len(seq_len) floats (multi-thread)
-//                     or 1*pad_seq_len(seq_len) (single-thread)
+//   attn_weights   - Workspace base, sized at least threads*seq_len floats
 //   dims           - Dimension specification
-//
-// Note: Internal row strides use stride_head_dim(head_dim). Logical math loops
-//       still iterate over head_dim and seq_len.
 // ============================================================================
 void cmhsa_forward_cpu(
     const float *RESTRICT Q,      // [batch, n_heads, seq_len, head_dim]

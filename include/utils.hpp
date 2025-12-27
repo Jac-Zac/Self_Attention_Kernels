@@ -6,13 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "vector_pragmas.h"
-
-// Round up x to the next multiple of a (a must be power of 2)
-static inline size_t round_up_pow2(size_t x, size_t a) {
-  return (x + a - 1) & ~(a - 1);
-}
-
 // Shared outputs from attention run
 struct Outputs {
   float *Q;
@@ -54,16 +47,3 @@ inline void free_outputs(struct Outputs *outputs) {
 #define RESTRICT
 #endif
 #endif
-
-// Alignment configuration and helpers
-#ifndef ALIGNMENT
-#define ALIGNMENT 64
-#endif
-
-// Aligned allocation for float buffers using posix_memalign
-#define ALIGNED_ALLOC_FLOAT(ptr, count)                                        \
-  (posix_memalign((void **)&(ptr), ALIGNMENT, sizeof(float) * (count)))
-
-// Compiler alignment assumption hint (generalized)
-#define ASSUME_ALIGNED_FLOAT(ptr)                                              \
-  (ptr = (float *)ASSUME_ALIGNED((ptr), ALIGNMENT))
