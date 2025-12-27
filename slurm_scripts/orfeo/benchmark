@@ -53,10 +53,5 @@ done
 rm -f "$RESULTS_DIR"/benchmark_*t.csv
 
 echo ""
-echo "=== Generating scaling plot ==="
-python3 python_src/plot.py --input "$RESULTS_DIR/benchmark.csv" --output "$RESULTS_DIR/scaling.png" --no-show
-
-echo ""
 echo "=== Benchmark complete ==="
 echo "Results: $RESULTS_DIR/benchmark.csv"
-echo "Plot:    $RESULTS_DIR/scaling.png"
