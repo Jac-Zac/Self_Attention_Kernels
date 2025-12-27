@@ -18,7 +18,7 @@ EXEC=./cmhsa.out
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
-export OMP_DISPLAY_AFFINITY=TRUE
+# export OMP_DISPLAY_AFFINITY=TRUE
 
 # Loading necessary module
 # module load openMPI/5.0.5

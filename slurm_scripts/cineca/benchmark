@@ -6,87 +6,97 @@
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH -A uTS25_Tornator_0
-#SBATCH -t 00:02:00
-#SBATCH --job-name=self_attention
+#SBATCH -t 00:10:00                 # 30 minutes for full scaling analysis
+#SBATCH --job-name=self_attention_bench
 
 # =======================================================
-# Load the required modules for GCC and OpenMPI
-module load openmpi/4.1.6--gcc--12.2.0
-
-# 1. Load the specific VTune version
-module load intel-oneapi-vtune/2024.1.0
-
-# 2. Set the results directory name
-# Good practice to include the version (v3) in the folder name
-RESULT_DIR="vtune_report_v3"
+# Load the required modules
+# module load openmpi/4.1.6--gcc--12.2.0
 
 # Set the executable name
 EXEC=./cmhsa.out
 
 # =======================================================
 # Set OpenMP environment variables
-export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OMP_PLACES=cores
-# export OMP_PROC_BIND=spread
 export OMP_PROC_BIND=close
 export OMP_DISPLAY_AFFINITY=TRUE
 
-# Set the total number of MPI tasks
-TOTAL_MPI_TASKS=${SLURM_NTASKS}
-
-# Define the arguments for the executable
-# A medium-sized grid suitable for a single-node run
-ARGS="--batch 8 --n_heads 16 --seq_len 1024 --head_dim 64"
-
 # Print run information
-echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
-echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+echo "Running scaling benchmark on Cineca"
+echo "Available CPUs: ${SLURM_CPUS_PER_TASK}"
 
+# =======================================================
 # Minimal Python venv + requirements
-# VENV_DIR="${VENV_DIR:-.venv}"
-# PY_BIN="${PY_BIN:-$(command -v python3 || command -v python)}"
-# if [ -z "$PY_BIN" ]; then
-#   echo "Python not found. Load a Python module." >&2
-#   exit 1
-# fi
-# [ -d "$VENV_DIR" ] || "$PY_BIN" -m venv "$VENV_DIR"
-# # shellcheck disable=SC1090
-# source "$VENV_DIR/bin/activate"
-# python -m pip install --upgrade pip
-#
-# # Pick requirements.txt and install always
-# REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requirements.txt}"
-# [ -f "$REQ_FILE" ] || REQ_FILE="requirements.txt"
-# if [ -f "$REQ_FILE" ]; then
-#   echo "Installing Python dependencies from $REQ_FILE..."
-#   pip install -r "$REQ_FILE"
-# else
-#   echo "requirements.txt not found; skipping pip install."
-# fi
-#
-# source .venv/bin/activate
-#
-# # Print run information
-# echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
-# echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+VENV_DIR="${VENV_DIR:-.venv}"
+PY_BIN="${PY_BIN:-$(command -v python3 || command -v python)}"
+if [ -z "$PY_BIN" ]; then
+  echo "Python not found. Load a Python module." >&2
+  exit 1
+fi
+[ -d "$VENV_DIR" ] || "$PY_BIN" -m venv "$VENV_DIR"
+# shellcheck disable=SC1090
+source "$VENV_DIR/bin/activate"
+python -m pip install --upgrade pip
 
-# Compile and run the benchmark
-# make benchmark
+# Pick requirements.txt and install
+REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requirements.txt}"
+[ -f "$REQ_FILE" ] || REQ_FILE="requirements.txt"
+if [ -f "$REQ_FILE" ]; then
+  echo "Installing Python dependencies from $REQ_FILE..."
+  pip install -r "$REQ_FILE"
+else
+  echo "requirements.txt not found; skipping pip install."
+fi
 
-make multi DEBUG=1 VERSION=v3
+source .venv/bin/activate
 
-# 3. Run Microarchitecture Exploration
-# This tells you if your Attention kernel is "Retiring" instructions
-# or stalled by memory/frontend issues.
-vtune -collect uarch-exploration -result-dir ${RESULT_DIR}_uarch \
-        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 1024 --head_dim 64
+# =======================================================
+# Create results directory
+RESULTS_DIR="results"
+mkdir -p "$RESULTS_DIR"
 
-# 3. Run Microarchitecture Exploration
-# This tells you if your Attention kernel is "Retiring" instructions
-# or stalled by memory/frontend issues.
-# 4. (Optional) Run Memory Access analysis
-# This will specifically pinpoint why you had that 87% cache miss rate earlier.
-vtune -collect memory-access -result-dir ${RESULT_DIR}_mem \
-        ./cmhsa.out --batch 4 --n_heads 8 --seq_len 1024 --head_dim 64
+echo "=== Starting benchmark runs ==="
+echo "Results will be saved to $RESULTS_DIR/"
 
-perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS
+# Thread counts to benchmark (scaled for 112 cores)
+THREAD_COUNTS="1 2 4 8 16 28 56 112"
+
+# Run benchmarks for each thread count, saving JSON output
+for threads in $THREAD_COUNTS; do
+  echo ""
+  echo ">>> Running benchmark with $threads threads..."
+  export OMP_NUM_THREADS=$threads
+  make benchmark \
+    BENCH_BACKEND=multi \
+    BENCH_THREADS=$threads \
+    USE_SRUN=1 \
+    BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_${threads}threads.json"
+done
+
+echo ""
+echo "=== Merging benchmark results ==="
+
+# Merge all JSON files into combined.json and delete individual files
+python3 python_src/merge_results.py \
+  "$RESULTS_DIR"/benchmark_*threads.json \
+  --output "$RESULTS_DIR/combined.json" \
+  --delete-inputs
+
+echo ""
+echo "=== Generating scaling plots ==="
+
+# Generate scaling plots from combined results
+python3 python_src/plotting/scaling_plot.py \
+  --input "$RESULTS_DIR/combined.json" \
+  --save-dir "$RESULTS_DIR" \
+  --no-show
+
+echo ""
+echo "=== Benchmark complete ==="
+echo "Results saved to:"
+echo "  - $RESULTS_DIR/combined.json"
+echo "  - $RESULTS_DIR/strong_scaling_speedup.png"
+echo "  - $RESULTS_DIR/strong_scaling_efficiency.png"
+echo "  - $RESULTS_DIR/time_vs_threads.png"
+echo "  - $RESULTS_DIR/comparison_bar.png"
