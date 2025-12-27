@@ -5,8 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// NOTE: This version implements different improvements but actually limits
-// instruction level parallelism.
+// NOTE: This version fuses max-finding with score computation to reduce passes
+// over the data. However, this can actually limit instruction-level parallelism
+// because the max comparison depends on each score computation, creating a
+// data dependency chain. Compare with v1 which separates these operations.
 
 /**
  * Causal Multi-Head Self-Attention forward pass (CPU implementation)
@@ -17,11 +19,11 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT attn_weights, const AttentionDims dims) {
 
-  size_t batch_size = dims.batch;
-  size_t num_heads = dims.n_heads;
-  size_t seq_len = dims.seq_len;
-  size_t head_dim = dims.head_dim;
-  const float scale = 1 / sqrtf(head_dim);
+  const size_t batch_size = dims.batch;
+  const size_t num_heads = dims.n_heads;
+  const size_t seq_len = dims.seq_len;
+  const size_t head_dim = dims.head_dim;
+  const float scale = 1.0f / sqrtf((float)head_dim);
   const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
 
   // Process each batch and head independently

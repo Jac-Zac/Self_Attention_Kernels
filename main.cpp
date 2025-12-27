@@ -34,9 +34,24 @@ int main(int argc, char *argv[]) {
   const size_t head_dim = cfg.head_dim;
   unsigned seed = cfg.seed;
 
+  // Validate dimensions
+  if (batch == 0 || n_heads == 0 || seq_len == 0 || head_dim == 0) {
+    fprintf(stderr, "Error: all dimensions must be positive\n");
+    return 1;
+  }
+  if (batch > 1024 || n_heads > 128 || seq_len > 16384 || head_dim > 512) {
+    fprintf(stderr,
+            "Warning: dimensions are very large and may cause memory issues\n");
+  }
+
   // Warm-up and timed iterations (configurable via flags)
   const int warmup = cfg.warmup;
   const int iters = cfg.iters;
+
+  if (warmup < 0 || iters <= 0) {
+    fprintf(stderr, "Error: warmup must be non-negative and iters must be positive\n");
+    return 1;
+  }
 
   int validate = cfg.validate;
   const char *validate_dir = cfg.validate_dir;

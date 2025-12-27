@@ -13,11 +13,11 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT attn_base, const AttentionDims dims) {
 
-  size_t batch_size = dims.batch;
-  size_t num_heads = dims.n_heads;
-  size_t seq_len = dims.seq_len;
-  size_t head_dim = dims.head_dim;
-  const float scale = 1 / sqrtf(head_dim);
+  const size_t batch_size = dims.batch;
+  const size_t num_heads = dims.n_heads;
+  const size_t seq_len = dims.seq_len;
+  const size_t head_dim = dims.head_dim;
+  const float scale = 1.0f / sqrtf((float)head_dim);
   const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
   const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
 

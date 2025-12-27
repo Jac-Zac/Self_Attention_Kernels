@@ -4,9 +4,18 @@
 #include <omp.h>
 #include <stdlib.h>
 
-// NOTE:
-// Basic multi-threaded version. Parallelizes over batch dimension.
-// Each thread gets its own scratch space for attention weights.
+/**
+ * Multi-threaded Causal Multi-Head Self-Attention - v0
+ *
+ * This is the baseline multi-threaded implementation:
+ * - Uses OpenMP to parallelize over the batch dimension
+ * - Each thread gets its own scratch space for attention weights
+ * - Uses #pragma omp simd hints for inner loops to enable vectorization
+ * - Otherwise follows the same algorithm as single-threaded v1
+ *
+ * Thread workspace: Each thread needs seq_len_padded floats for attention weights.
+ * Total workspace: threads * seq_len_padded floats.
+ */
 
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
