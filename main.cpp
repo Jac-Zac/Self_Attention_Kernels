@@ -135,7 +135,7 @@ int main(int argc, char *argv[]) {
   unsigned long long total_ns = 0ULL;
   float checksum = 0.0f;
 
-  // Perform some iterations to measure a mroe accurate timing
+  // Perform some iterations to measure a more accurate timing
   for (int i = 0; i < iters; i++) {
     struct timespec start, end;
     NOW(start);

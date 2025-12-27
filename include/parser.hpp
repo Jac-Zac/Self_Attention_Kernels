@@ -25,6 +25,16 @@ inline void print_usage() {
           "[--threads N]\n");
 }
 
+// Helper to check if next argument exists
+inline int check_next_arg(int i, int argc, const char *flag) {
+  if (i + 1 >= argc) {
+    fprintf(stderr, "Error: flag '%s' requires an argument\n", flag);
+    print_usage();
+    return 1;
+  }
+  return 0;
+}
+
 inline int parse_args(int argc, char **argv, RunConfig *cfg) {
   // defaults
   cfg->batch = 2;
@@ -41,59 +51,41 @@ inline int parse_args(int argc, char **argv, RunConfig *cfg) {
   for (int i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (strcmp(arg, "--validate-outdir") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->validate = 1;
       cfg->validate_dir = argv[++i];
     } else if (strcmp(arg, "--batch") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->batch = (size_t)strtoull(argv[++i], NULL, 10);
     } else if (strcmp(arg, "--n_heads") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->n_heads = (size_t)strtoull(argv[++i], NULL, 10);
     } else if (strcmp(arg, "--seq_len") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->seq_len = (size_t)strtoull(argv[++i], NULL, 10);
     } else if (strcmp(arg, "--head_dim") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->head_dim = (size_t)strtoull(argv[++i], NULL, 10);
     } else if (strcmp(arg, "--seed") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->seed = (unsigned)strtoul(argv[++i], NULL, 10);
     } else if (strcmp(arg, "--warmup") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->warmup = (int)strtol(argv[++i], NULL, 10);
     } else if (strcmp(arg, "--iters") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->iters = (int)strtol(argv[++i], NULL, 10);
     } else if (strcmp(arg, "--threads") == 0) {
-      if (i + 1 >= argc) {
-        print_usage();
+      if (check_next_arg(i, argc, arg))
         return 1;
-      }
       cfg->threads = (int)strtol(argv[++i], NULL, 10);
     } else {
       fprintf(stderr, "Error: unknown flag '%s'\n", arg);
