@@ -58,6 +58,7 @@ NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA
 # SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
 # NOTE: For now let's exclude v0 since it takes a lot of time to compute
 SINGLE_VERSIONS := $(filter-out v0,$(basename $(notdir $(wildcard kernels/single_thread/v*.cpp))))
+# SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
 MULTI_VERSIONS := $(basename $(notdir $(wildcard kernels/multi_thread/v*.cpp)))
 CUDA_VERSIONS := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 
@@ -81,8 +82,8 @@ cuda:
 
 # Benchmark: build and run single-thread binaries for all discovered versions
 # Uses SINGLE_VERSIONS for discovery; fixed benchmark sizes below
-# @batch=2; heads=4; seqlen=1024; headdim=128; seed=1337; warmup=3; iters=25; threads=1; \
-# @batch=2; heads=8; seqlen=2048; headdim=128; seed=1337; warmup=5; iters=10; threads=$(BENCH_THREADS); \
+# Resonable numbers to run it with
+# @batch=8; heads=32; seqlen=4096; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 BENCH_BACKEND ?= single
 BENCH_BACKEND := $(strip $(BENCH_BACKEND))
 ifeq ($(BENCH_BACKEND),)
@@ -114,7 +115,7 @@ endif
 BENCH_OUTPUT_FILE ?=
 
 benchmark:
-	@batch=4; heads=8; seqlen=1024; headdim=64; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
+	@batch=2; heads=4; seqlen=1024; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 	bins=""; \
 	for ver in $(BENCH_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
