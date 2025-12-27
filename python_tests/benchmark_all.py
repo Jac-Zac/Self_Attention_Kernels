@@ -54,6 +54,11 @@ def parse_args():
         action="store_true",
         help="Output results as JSON instead of text table",
     )
+    p.add_argument(
+        "--use-srun",
+        action="store_true",
+        help="Use srun to launch binaries (for SLURM environments with proper CPU binding)",
+    )
     return p.parse_args()
 
 
@@ -220,6 +225,7 @@ def main():
             warmup=args.warmup,
             iters=args.iters,
             validate_outdir=outdir,
+            use_srun=args.use_srun,
         )
         first_c_per_iter = parse_c_time(c_output)
 
@@ -269,6 +275,7 @@ def main():
                 warmup=args.warmup,
                 iters=args.iters,
                 validate_outdir=outdir,
+                use_srun=args.use_srun,
             )
             c_per_iter = parse_c_time(c_output)
 

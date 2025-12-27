@@ -23,30 +23,39 @@ def run_c_binary(
     warmup: int = 0,
     iters: int = 1,
     validate_outdir: Path | None = None,
+    use_srun: bool = False,
 ) -> str:
     """
     Run the C binary with the given parameters.
     Returns stdout as a string.
+
+    If use_srun=True, the binary is launched via 'srun' to ensure proper
+    CPU affinity binding in SLURM environments.
     """
-    cmd = [
-        bin_path,
-        "--batch",
-        str(B),
-        "--n_heads",
-        str(H),
-        "--seq_len",
-        str(S),
-        "--head_dim",
-        str(D),
-        "--seed",
-        str(seed),
-        "--warmup",
-        str(warmup),
-        "--iters",
-        str(iters),
-        "--threads",
-        str(max(1, threads)),
-    ]
+    # Prepend srun if requested (for SLURM environments)
+    cmd = ["srun"] if use_srun else []
+
+    cmd.extend(
+        [
+            bin_path,
+            "--batch",
+            str(B),
+            "--n_heads",
+            str(H),
+            "--seq_len",
+            str(S),
+            "--head_dim",
+            str(D),
+            "--seed",
+            str(seed),
+            "--warmup",
+            str(warmup),
+            "--iters",
+            str(iters),
+            "--threads",
+            str(max(1, threads)),
+        ]
+    )
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])
 

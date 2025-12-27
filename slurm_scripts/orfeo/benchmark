@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --nodes=1                   # 1 node
 #SBATCH --ntasks=1                  # total MPI tasks across nodes
-#SBATCH --ntasks-per-node=1         # 8 MPI tasks on the node
-#SBATCH --cpus-per-task=24           # 8 OpenMP threads per MPI task
+#SBATCH --ntasks-per-node=1         # 1 MPI task on the node
+#SBATCH --cpus-per-task=24          # OpenMP threads per MPI task
 #SBATCH --mem=0                     # use all available memory
-##SBATCH --partition=GENOA
+##SBATCH --partition=EPYC
 #SBATCH --partition=THIN
-#SBATCH -t 00:05:00                 # 5 minutes
-#SBATCH --exclusive                 # Get exclusive access to benchmark
+#SBATCH -t 00:20:00                 # 20 minutes
+##SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH --job-name=self_attention
 
 # Set the executable name
@@ -21,14 +21,14 @@ export OMP_PROC_BIND=close
 export OMP_DISPLAY_AFFINITY=TRUE
 
 # Loading necessary module
-module load openMPI/5.0.5
+# module load openMPI/5.0.5
 
 # Set the total number of MPI tasks
 TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
 # Define the arguments for the executable
 # A medium-sized grid suitable for a single-node run
-ARGS="--batch 4 --n_heads 16 --seq_len 1024 --head_dim 64"
+ARGS="--batch 2 --n_heads 4 --seq_len 4096 --head_dim 64"
 
 # Print run information
 echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
@@ -59,9 +59,22 @@ fi
 source .venv/bin/activate
 
 # Compile and run the benchmark
-make benchmark
-# make multi DEBUG=1 VERSION=v1 BENCH_THREADS=${BENCH_THREADS}
+# USE_SRUN=1 ensures child processes spawned by Python get proper SLURM CPU binding
 
+export OMP_NUM_THREADS=1
+make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
+export OMP_NUM_THREADS=2
+make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
+export OMP_NUM_THREADS=8
+make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
+export OMP_NUM_THREADS=12
+make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
+export OMP_NUM_THREADS=18
+make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
+export OMP_NUM_THREADS=24
+make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
+
+# make multi DEBUG=1 VERSION=v1 BENCH_THREADS=${OMP_NUM_THREADS}
 # Run the code using mpirun
 # mpirun -np ${TOTAL_MPI_TASKS} --bind-to none  ${EXEC} ${ARGS} > ${TOTAL_MPI_TASKS}_mpi_${OMP_NUM_THREADS}_threads.log
 

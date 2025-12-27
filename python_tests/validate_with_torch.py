@@ -36,6 +36,11 @@ def parse_args():
     p.add_argument("--rtol", type=float, default=1e-4)
     p.add_argument("--atol", type=float, default=1e-5)
     p.add_argument("--threads", type=int, default=1)
+    p.add_argument(
+        "--use-srun",
+        action="store_true",
+        help="Use srun to launch binaries (for SLURM environments with proper CPU binding)",
+    )
     return p.parse_args()
 
 
@@ -55,6 +60,7 @@ def main():
             args.seed,
             args.threads,
             validate_outdir=outdir,
+            use_srun=args.use_srun,
         )
 
         # Load artifacts

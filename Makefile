@@ -96,6 +96,9 @@ ifeq ($(BENCH_THREADS),)
   BENCH_THREADS := 8
 endif
 
+# Use srun for SLURM environments (ensures proper CPU binding for child processes)
+USE_SRUN ?= 0
+
 # Select versions and source dir based on backend
 ifeq ($(BENCH_BACKEND),single)
   BENCH_VERSIONS := $(SINGLE_VERSIONS)
@@ -122,7 +125,8 @@ benchmark:
 	  python3 python_tests/benchmark_all.py \
 	    --bins $$bins \
 	    --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim \
-	    --seed $$seed --warmup $$warmup --iters $$iters --threads $$threads
+	    --seed $$seed --warmup $$warmup --iters $$iters --threads $$threads \
+	    $(if $(filter 1,$(USE_SRUN)),--use-srun)
 	@$(MAKE) clean
 
 
@@ -139,7 +143,8 @@ test:
 	      -DBACKEND=\"$$backend\" -DVERSION_STR=\"$$ver\" \
 	      -o $(EXEC) main.cpp kernels/$$backend\_thread/$$ver.cpp; \
 	    uv run python3 python_tests/validate_with_torch.py --bin ./$(EXEC) \
-	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337; \
+	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337 \
+	      $(if $(filter 1,$(USE_SRUN)),--use-srun); \
 	  done; \
 	done
 # cuda)   versions="$(CUDA_VERSIONS)" ;; \
@@ -167,6 +172,7 @@ help:
 	@echo "  CXX=clang++    Use clang++ instead of g++"
 	@echo "  BENCH_BACKEND  Backend for benchmark: single (default) or multi"
 	@echo "  BENCH_THREADS  Threads used for both C++ and PyTorch benchmark"
+	@echo "  USE_SRUN=1     Use srun for SLURM environments (proper CPU binding)"
 	@echo ""
 	@echo "Benchmark outputs a text table by default. Use --json flag in"
 	@echo "python_tests/benchmark_all.py directly for JSON output."
