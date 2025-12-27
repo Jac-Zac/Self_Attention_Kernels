@@ -50,12 +50,6 @@ Generate plots locally after downloading benchmark CSV from cluster:
 ```bash
 # Auto-detect plot type based on data
 PYTHONPATH=python_src uv run python -m plot -i results/benchmark.csv
-
-# Single-thread: bar plot (speedup vs Naive & SDPA)
-PYTHONPATH=python_src uv run python -m plot.single -i results/benchmark.csv
-
-# Multi-thread: scaling plot
-PYTHONPATH=python_src uv run python -m plot.multi -i results/benchmark.csv
 ```
 
 Outputs saved to `results/single_perf.png` or `results/scaling.png`.

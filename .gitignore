@@ -52,3 +52,6 @@ results/
 
 # macOS debug symbols
 **.dSYM
+
+# Additional
+AGENTS.md
