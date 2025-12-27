@@ -8,8 +8,7 @@
 // 1. Respecting the causal mask during computation (not computing masked
 // values)
 // 2. Changing the loop order in the output computation to improve cache
-// locality
-//    (making head_dim the innermost loop allows better vectorization)
+// locality (making head_dim the innermost loop allows better vectorization)
 
 /**
  * Causal Multi-Head Self-Attention forward pass (CPU implementation)
@@ -38,7 +37,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
-      float *aw = (float *)ASSUME_ALIGNED(attn_weights, ALIGNMENT);
+      float *aw = attn_weights;
 
       // Base offset for current batch and head: [b, h, :, :]
       size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
