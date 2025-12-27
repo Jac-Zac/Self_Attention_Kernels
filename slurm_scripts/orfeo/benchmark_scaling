@@ -8,11 +8,14 @@
 #SBATCH --partition=THIN
 #SBATCH -t 00:20:00                 # 20 minutes
 ##SBATCH --exclusive                 # Get exclusive access to benchmark
-#SBATCH --job-name=self_attention
+#SBATCH --job-name=self_attention_scaling
 
 # Set OpenMP environment variables
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
+
+echo "Running scaling benchmark on Orfeo"
+echo "Available CPUs: ${SLURM_CPUS_PER_TASK}"
 
 # Minimal Python venv + requirements
 VENV_DIR="${VENV_DIR:-.venv}"
@@ -33,25 +36,25 @@ REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requir
 RESULTS_DIR="results"
 mkdir -p "$RESULTS_DIR"
 
-# Thread counts to benchmark
-THREAD_COUNTS="1 2 8 12 18 24"
+# Thread counts to benchmark (scaled for 24 cores on THIN partition)
+THREAD_COUNTS="1 2 4 8 12 18 24"
 
 echo "=== Starting scaling benchmark ==="
 
-# Run benchmarks for all thread counts (results appended to same CSV)
+# Run benchmarks for all thread counts
 for threads in $THREAD_COUNTS; do
   echo ">>> $threads threads..."
   export OMP_NUM_THREADS=$threads
-  make benchmark BENCH_BACKEND=multi BENCH_THREADS=$threads USE_SRUN=1 BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_${threads}t.csv"
+  make benchmark BENCH_BACKEND=multi BENCH_THREADS=$threads USE_SRUN=1 BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_scaling_${threads}t.csv"
 done
 
 # Merge CSVs (keep header from first, skip headers from rest)
-head -1 "$RESULTS_DIR/benchmark_1t.csv" > "$RESULTS_DIR/benchmark.csv"
-for f in "$RESULTS_DIR"/benchmark_*t.csv; do
-  tail -n +2 "$f" >> "$RESULTS_DIR/benchmark.csv"
+head -1 "$RESULTS_DIR/benchmark_scaling_1t.csv" > "$RESULTS_DIR/benchmark_scaling.csv"
+for f in "$RESULTS_DIR"/benchmark_scaling_*t.csv; do
+  tail -n +2 "$f" >> "$RESULTS_DIR/benchmark_scaling.csv"
 done
-rm -f "$RESULTS_DIR"/benchmark_*t.csv
+rm -f "$RESULTS_DIR"/benchmark_scaling_*t.csv
 
 echo ""
-echo "=== Benchmark complete ==="
-echo "Results: $RESULTS_DIR/benchmark.csv"
+echo "=== Scaling benchmark complete ==="
+echo "Results: $RESULTS_DIR/benchmark_scaling.csv"
