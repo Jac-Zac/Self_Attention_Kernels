@@ -5,11 +5,28 @@ Shared utilities for CMHSA validation and benchmarking.
 
 import json
 import re
+import shutil
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 import torch
+
+# Paths
+RESULTS_DIR = Path(__file__).parent.parent / "results"
+RESULTS_TMP = RESULTS_DIR / "tmp"
+
+
+@contextmanager
+def tmp_artifacts_dir():
+    """Context manager that creates results/tmp and cleans it up on exit."""
+    RESULTS_TMP.mkdir(parents=True, exist_ok=True)
+    try:
+        yield RESULTS_TMP
+    finally:
+        if RESULTS_TMP.exists():
+            shutil.rmtree(RESULTS_TMP)
 
 
 def run_c_binary(

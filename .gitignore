@@ -47,5 +47,8 @@ Thumbs.db
 # Python things
 *.py[cod]
 
+# Results directory (benchmarks, validation artifacts, etc.)
+results/
+
 # macOS debug symbols
 **.dSYM

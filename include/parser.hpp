@@ -33,7 +33,7 @@ inline int parse_args(int argc, char **argv, RunConfig *cfg) {
   cfg->head_dim = 64;
   cfg->seed = 1337;
   cfg->validate = 0;
-  cfg->validate_dir = "python_test";
+  cfg->validate_dir = "results/tmp";
   cfg->warmup = 5;
   cfg->iters = 25;
   cfg->threads = 0; // resolved later in main

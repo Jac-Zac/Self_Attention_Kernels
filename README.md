@@ -8,55 +8,71 @@ Simple, learning-focused kernels:
 
 ## Build
 
-- Single, Multi, Cuda: `make single`, `make multi`, `make cuda`
-- Choose version: `make single VERSION=v0`
+```bash
+make single              # Single-threaded
+make multi               # Multi-threaded (OpenMP)
+make cuda                # CUDA (stub)
+make single VERSION=v2   # Specific version
+```
 
 ## Run
 
-> Causal attention is always enabled.
-
-- `./cmhsa.out` runs with defaults.
-- Flags (errors on unknown/missing values):
-  - `--validate-outdir DIR` (writes Q/K/V/out and meta for Python)
-  - `--batch N` `--n_heads N` `--seq_len N` `--head_dim N`
-  - `--seed N` `--warmup N` `--iters N`
+```bash
+./cmhsa.out                          # Default parameters
+./cmhsa.out --batch 4 --n_heads 8 --seq_len 512 --head_dim 64
+./cmhsa.out --validate-outdir DIR    # Export Q/K/V/out for validation
+```
 
 ## Test
 
-- `make test` runs the lightweight validation program that uses the same parser.
-- Python deps: `source .venv/bin/activate` then `pip install -r requirements.txt` (or `uv sync`).
-- Validation script: `python_src/tests/validate_with_torch.py`
-- CUDA tests not implemented yet.
+```bash
+make test                # Validate all versions against PyTorch
+```
+
+Requires Python deps: `uv sync` or `pip install -r requirements.txt`
 
 ## Benchmark
 
-- Easiest: `make benchmark` builds and runs preset sizes, printing timing lines for each version.
-- Timings are reported in milliseconds via `timing.h`.
+```bash
+# Single-threaded benchmark
+make benchmark BENCH_BACKEND=single BENCH_THREADS=1
 
-### Scaling Analysis
+# Multi-threaded scaling
+make benchmark BENCH_BACKEND=multi BENCH_THREADS="1 2 4 8"
+```
 
-For multi-threaded scaling analysis:
+Results saved to `results/benchmark.csv`.
 
-1. Run benchmarks at different thread counts, saving JSON output
-2. Merge results: `python python_src/merge_results.py results/*.json -o results/combined.json`
-3. Generate plots: `python python_src/plotting/scaling_plot.py -i results/combined.json`
+## Plotting
 
-The SLURM script `slurm_scripts/orfeo/benchmark` automates this workflow.
+```bash
+# Auto-detect plot type based on data
+uv run python -m plot -i results/benchmark.csv
+
+# Single-thread: bar plot (speedup vs Naive & SDPA)
+uv run python -m plot.single -i results/benchmark.csv
+
+# Multi-thread: scaling plot
+uv run python -m plot.multi -i results/benchmark.csv
+```
 
 ## Project Structure
 
-- `include/`: headers (`cmhsa_forward.h`, `macros.hpp`, `timing.h`, `utils.hpp`)
-- `kernels/`: implementations
-  - `single_thread/`: CPU single-thread versions
-  - `multi_thread/`: CPU OpenMP versions
-  - `cuda/`: CUDA stubs/kernels
-- `python_src/`: Python scripts
-  - `utils.py`: shared utilities
-  - `benchmark_all.py`: benchmark runner with PyTorch comparison
-  - `merge_results.py`: merge multiple benchmark JSONs
-  - `tests/validate_with_torch.py`: validation against PyTorch
-  - `plotting/scaling_plot.py`: generate scaling plots
-- `main.cpp`: runnable example using the kernels
-- `Makefile`: build targets (single, multi, cuda)
-- `report/`: Typst report
-- `slurm_scripts/`: SLURM job scripts for HPC clusters
+```bash
+include/              # C++ headers
+kernels/
+  single_thread/      # CPU single-thread versions (v0-v4)
+  multi_thread/       # CPU OpenMP versions
+  cuda/               # CUDA kernels
+python_src/
+  benchmark.py        # Benchmark runner
+  utils.py            # Shared utilities
+  plot/               # Plotting package
+    __main__.py       # Auto-detect CLI
+    single.py         # Bar plot for single-thread
+    multi.py          # Scaling plot for multi-thread
+    utils.py          # Shared plot utilities
+  tests/              # Validation scripts
+main.cpp              # Entry point
+Makefile              # Build targets
+```

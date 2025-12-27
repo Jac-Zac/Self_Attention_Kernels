@@ -77,7 +77,6 @@ cuda:
 # 	$(CXX) $(CXXFLAGS) -fno-lto -S -fverbose-asm -masm=intel -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" main.cpp kernels/single_thread/$(VERSION).cpp
 
 # Test target: build main (single-thread backend) and validate against PyTorch
-# Float32-only; uses a temp dir via python_tests/validate_with_torch.py
 # Runs validation for all discovered single-thread versions
 
 # Benchmark: build and run single-thread binaries for all discovered versions
@@ -111,7 +110,7 @@ else
   BENCH_SRC_DIR := kernels/single_thread
 endif
 
-# Optional output file for JSON results
+# Optional output file for CSV results
 BENCH_OUTPUT_FILE ?=
 
 benchmark:
@@ -125,12 +124,12 @@ benchmark:
 	  bins="$$bins ./$$bin"; \
 	done; \
 	OMP_NUM_THREADS=$$threads MKL_NUM_THREADS=$$threads OPENBLAS_NUM_THREADS=$$threads NUMEXPR_NUM_THREADS=$$threads \
-	  python3 python_src/benchmark_all.py \
+	  python3 python_src/benchmark.py \
 	    --bins $$bins \
 	    --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim \
 	    --seed $$seed --warmup $$warmup --iters $$iters --threads $$threads \
 	    $(if $(filter 1,$(USE_SRUN)),--use-srun) \
-	    $(if $(BENCH_OUTPUT_FILE),--output-file $(BENCH_OUTPUT_FILE))
+	    $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE))
 	@$(MAKE) clean
 
 
@@ -177,9 +176,9 @@ help:
 	@echo "  BENCH_BACKEND  Backend for benchmark: single (default) or multi"
 	@echo "  BENCH_THREADS  Threads used for both C++ and PyTorch benchmark"
 	@echo "  USE_SRUN=1     Use srun for SLURM environments (proper CPU binding)"
-	@echo "  BENCH_OUTPUT_FILE  Save benchmark results to JSON file"
+	@echo "  BENCH_OUTPUT_FILE  Save benchmark results to CSV file"
 	@echo ""
-	@echo "Benchmark outputs a text table by default. Use BENCH_OUTPUT_FILE to save JSON."
+	@echo "Benchmark outputs a text summary by default. Use BENCH_OUTPUT_FILE to save CSV."
 
 # Clean
 clean:
