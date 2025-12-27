@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 // Logical-to-physical stride helpers
+// These functions compute the padded stride for vectorization-friendly memory access
 static inline size_t stride_head_dim(size_t head_dim) {
   return round_up_pow2(head_dim, VEC_PADDING);
 }

@@ -4,10 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// NOTE:
-// This version improves on the v0 since it doesn't waste time computing things
-// that will be zero out by the mask moreover it changes the order of
-// computation when computing attention weights times values
+// NOTE: v1 improves on v0 by:
+// 1. Respecting the causal mask during computation (not computing masked
+// values)
+// 2. Changing the loop order in the output computation to improve cache
+// locality
+//    (making head_dim the innermost loop allows better vectorization)
 
 /**
  * Causal Multi-Head Self-Attention forward pass (CPU implementation)
@@ -25,11 +27,11 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT attn_weights, const AttentionDims dims) {
 
-  size_t batch_size = dims.batch;
-  size_t num_heads = dims.n_heads;
-  size_t seq_len = dims.seq_len;
-  size_t head_dim = dims.head_dim;
-  const float scale = 1 / sqrtf(head_dim);
+  const size_t batch_size = dims.batch;
+  const size_t num_heads = dims.n_heads;
+  const size_t seq_len = dims.seq_len;
+  const size_t head_dim = dims.head_dim;
+  const float scale = 1.0f / sqrtf((float)head_dim);
   const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
 
   // Process each batch and head independently

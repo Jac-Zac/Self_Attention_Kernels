@@ -77,11 +77,11 @@
 /* --------------------------- OTHER ------------------------------------- */
 #elif defined(__CC_ARM)
 
-#error "ARM compilers are not supported yet")
+#error "ARM compilers are not supported yet"
 
 #else
 
-#error "UKNOWN COMPILER USED"
+#error "UNKNOWN COMPILER USED"
 
 #endif
 

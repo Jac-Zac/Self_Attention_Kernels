@@ -6,6 +6,13 @@
 #include <string.h>
 
 inline void write_bin(const char *path, const float *data, size_t count) {
+  if (!data) {
+    fprintf(stderr, "Error: NULL data pointer for %s\n", path);
+    exit(1);
+  }
+  if (count == 0) {
+    fprintf(stderr, "Warning: writing 0 elements to %s\n", path);
+  }
   FILE *f = fopen(path, "wb");
   if (!f) {
     fprintf(stderr, "Error: cannot open %s for writing\n", path);
@@ -13,7 +20,8 @@ inline void write_bin(const char *path, const float *data, size_t count) {
   }
   size_t n = fwrite(data, sizeof(float), count, f);
   if (n != count) {
-    fprintf(stderr, "Error: short write to %s\n", path);
+    fprintf(stderr, "Error: short write to %s (wrote %zu of %zu elements)\n",
+            path, n, count);
     fclose(f);
     exit(1);
   }
@@ -67,6 +75,8 @@ inline void write_packed_qkv(const char *path, const float *src,
   free(tmp);
 }
 
+// Write validation artifacts (Q, K, V, out tensors and metadata) to disk
+// for comparison with reference implementations
 inline void write_validation_artifacts(const char *dir, const RunConfig *cfg,
                                        const struct Outputs *out) {
   char cmd[256];

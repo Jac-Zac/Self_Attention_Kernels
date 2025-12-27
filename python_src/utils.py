@@ -44,10 +44,22 @@ def run_c_binary(
 ) -> str:
     """
     Run the C binary with the given parameters.
-    Returns stdout as a string.
-
-    If use_srun=True, the binary is launched via 'srun' to ensure proper
-    CPU affinity binding in SLURM environments.
+    
+    Args:
+        bin_path: Path to the compiled binary
+        B: Batch size
+        H: Number of attention heads
+        S: Sequence length
+        D: Head dimension
+        seed: Random seed for reproducibility
+        threads: Number of threads to use
+        warmup: Number of warmup iterations (not timed)
+        iters: Number of timed iterations
+        validate_outdir: Optional directory to save validation artifacts
+        use_srun: Whether to use srun for SLURM CPU affinity binding
+    
+    Returns:
+        stdout: Complete standard output from the binary as a string
     """
     # Prepend srun if requested (for SLURM environments)
     cmd = ["srun"] if use_srun else []
@@ -80,7 +92,16 @@ def run_c_binary(
 
 
 def _load_tensor(path: Path, shape: tuple) -> torch.Tensor:
-    """Load a binary float32 tensor from disk as a contiguous torch.Tensor."""
+    """
+    Load a binary float32 tensor from disk as a contiguous torch.Tensor.
+    
+    Args:
+        path: Path to the binary file
+        shape: Target shape for the tensor (B, H, S, D)
+    
+    Returns:
+        torch.Tensor: Loaded and reshaped tensor
+    """
     arr = np.fromfile(path, dtype=np.float32)
     return torch.from_numpy(arr.reshape(shape)).contiguous()
 
@@ -90,7 +111,13 @@ def load_artifacts(
 ) -> tuple[dict, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Load all artifacts from C binary output directory.
-    Returns (meta, Q, K, V, out_c).
+    
+    Args:
+        outdir: Directory containing meta.json and binary tensor files
+    
+    Returns:
+        tuple: (meta, Q, K, V, out_c) where meta is a dict with config info
+               and Q, K, V, out_c are torch.Tensors of shape (B, H, S, D)
     """
     with open(outdir / "meta.json", "r") as f:
         meta = json.load(f)
@@ -110,7 +137,18 @@ def load_artifacts(
 
 
 def parse_c_time(output: str) -> float:
-    """Extract per-iteration time in seconds from C binary output."""
+    """
+    Extract per-iteration time in seconds from C binary output.
+    
+    Args:
+        output: Standard output from the C binary
+    
+    Returns:
+        float: Per-iteration execution time in seconds
+    
+    Raises:
+        RuntimeError: If the time pattern is not found in output
+    """
     m = re.search(r"CPU attention forward \(per-iter\):\s*([0-9.]+)\s*s", output)
     if not m:
         raise RuntimeError(

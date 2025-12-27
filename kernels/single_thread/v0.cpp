@@ -4,7 +4,18 @@
 #include <stdlib.h>
 
 /**
- * Causal Multi-Head Self-Attention forward pass (CPU implementation)
+ * Causal Multi-Head Self-Attention forward pass (CPU implementation) - v0
+ *
+ * This is the baseline/reference implementation with minimal optimizations.
+ * It follows the standard attention algorithm directly:
+ * 1. Compute all QK^T scores (including masked positions)
+ * 2. Apply causal mask by setting future positions to -inf
+ * 3. Compute softmax using numerically stable two-pass algorithm
+ * 4. Explicitly zero out masked positions after softmax
+ * 5. Compute weighted sum of values
+ *
+ * This version is intentionally simple and readable, serving as a reference
+ * for correctness. Later versions optimize by avoiding masked computations.
  *
  * Computes: out = softmax(Q K^T / sqrt(d)) V with causal masking
  *
@@ -19,11 +30,11 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT attn_weights, const AttentionDims dims) {
 
-  size_t batch_size = dims.batch;
-  size_t num_heads = dims.n_heads;
-  size_t seq_len = dims.seq_len;
-  size_t head_dim = dims.head_dim;
-  const float scale = 1 / sqrtf(head_dim);
+  const size_t batch_size = dims.batch;
+  const size_t num_heads = dims.n_heads;
+  const size_t seq_len = dims.seq_len;
+  const size_t head_dim = dims.head_dim;
+  const float scale = 1.0f / sqrtf((float)head_dim);
   const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
 
   // Process each batch and head independently
