@@ -24,15 +24,10 @@ export OMP_DISPLAY_AFFINITY=TRUE
 # module load openMPI/5.0.5
 
 # Set the total number of MPI tasks
-TOTAL_MPI_TASKS=${SLURM_NTASKS}
-
-# Define the arguments for the executable
-# A medium-sized grid suitable for a single-node run
-ARGS="--batch 2 --n_heads 4 --seq_len 4096 --head_dim 64"
+# TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
 # Print run information
-echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
-echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+# echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
 
 # Minimal Python venv + requirements
 VENV_DIR="${VENV_DIR:-.venv}"
@@ -58,24 +53,52 @@ fi
 
 source .venv/bin/activate
 
-# Compile and run the benchmark
-# USE_SRUN=1 ensures child processes spawned by Python get proper SLURM CPU binding
+# =======================================================
+# Create results directory
+RESULTS_DIR="results"
+mkdir -p "$RESULTS_DIR"
 
-export OMP_NUM_THREADS=1
-make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
-export OMP_NUM_THREADS=2
-make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
-export OMP_NUM_THREADS=8
-make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
-export OMP_NUM_THREADS=12
-make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
-export OMP_NUM_THREADS=18
-make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
-export OMP_NUM_THREADS=24
-make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1
+echo "=== Starting benchmark runs ==="
+echo "Results will be saved to $RESULTS_DIR/"
 
-# make multi DEBUG=1 VERSION=v1 BENCH_THREADS=${OMP_NUM_THREADS}
-# Run the code using mpirun
-# mpirun -np ${TOTAL_MPI_TASKS} --bind-to none  ${EXEC} ${ARGS} > ${TOTAL_MPI_TASKS}_mpi_${OMP_NUM_THREADS}_threads.log
+# Thread counts to benchmark
+THREAD_COUNTS="1 2 8 12 18 24"
 
-# perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS
+# Run benchmarks for each thread count, saving JSON output
+for threads in $THREAD_COUNTS; do
+  echo ""
+  echo ">>> Running benchmark with $threads threads..."
+  export OMP_NUM_THREADS=$threads
+  make benchmark \
+    BENCH_BACKEND=multi \
+    BENCH_THREADS=$threads \
+    USE_SRUN=1 \
+    BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_${threads}threads.json"
+done
+
+echo ""
+echo "=== Merging benchmark results ==="
+
+# Merge all JSON files into combined.json and delete individual files
+python3 python_src/merge_results.py \
+  "$RESULTS_DIR"/benchmark_*threads.json \
+  --output "$RESULTS_DIR/combined.json" \
+  --delete-inputs
+
+echo ""
+echo "=== Generating scaling plots ==="
+
+# Generate scaling plots from combined results
+python3 python_src/plotting/scaling_plot.py \
+  --input "$RESULTS_DIR/combined.json" \
+  --save-dir "$RESULTS_DIR" \
+  --no-show
+
+echo ""
+echo "=== Benchmark complete ==="
+echo "Results saved to:"
+echo "  - $RESULTS_DIR/combined.json"
+echo "  - $RESULTS_DIR/strong_scaling_speedup.png"
+echo "  - $RESULTS_DIR/strong_scaling_efficiency.png"
+echo "  - $RESULTS_DIR/time_vs_threads.png"
+echo "  - $RESULTS_DIR/comparison_bar.png"

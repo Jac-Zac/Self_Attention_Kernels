@@ -55,6 +55,12 @@ def parse_args():
         help="Output results as JSON instead of text table",
     )
     p.add_argument(
+        "--output-file",
+        type=str,
+        default=None,
+        help="Path to save JSON results (implies --json)",
+    )
+    p.add_argument(
         "--use-srun",
         action="store_true",
         help="Use srun to launch binaries (for SLURM environments with proper CPU binding)",
@@ -169,14 +175,15 @@ def print_text_table(
     print()
 
 
-def print_json(
+def build_json_output(
     config: dict,
     naive_per_iter: float,
     sdpa_per_iter: float,
     results: list[dict],
-) -> None:
-    """Print results as JSON."""
-    output = {
+) -> dict:
+    """Build JSON output dictionary."""
+    return {
+        "threads": config["threads"],
         "config": config,
         "pytorch_baseline": {
             "naive_per_iter": naive_per_iter,
@@ -184,7 +191,33 @@ def print_json(
         },
         "results": results,
     }
+
+
+def print_json(
+    config: dict,
+    naive_per_iter: float,
+    sdpa_per_iter: float,
+    results: list[dict],
+) -> None:
+    """Print results as JSON to stdout."""
+    output = build_json_output(config, naive_per_iter, sdpa_per_iter, results)
     print(json.dumps(output, indent=2))
+
+
+def save_json(
+    config: dict,
+    naive_per_iter: float,
+    sdpa_per_iter: float,
+    results: list[dict],
+    output_file: str,
+) -> None:
+    """Save results as JSON to a file."""
+    output = build_json_output(config, naive_per_iter, sdpa_per_iter, results)
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(output, f, indent=2)
+    print(f"Results saved to {output_file}")
 
 
 def main():
@@ -299,7 +332,10 @@ def main():
             )
 
     # Output results
-    if args.json:
+    if args.output_file:
+        # --output-file implies JSON output to file
+        save_json(config, naive_per_iter, sdpa_per_iter, results, args.output_file)
+    elif args.json:
         print_json(config, naive_per_iter, sdpa_per_iter, results)
     else:
         print_text_table(config, naive_per_iter, sdpa_per_iter, results)

@@ -111,6 +111,9 @@ else
   BENCH_SRC_DIR := kernels/single_thread
 endif
 
+# Optional output file for JSON results
+BENCH_OUTPUT_FILE ?=
+
 benchmark:
 	@batch=4; heads=8; seqlen=1024; headdim=64; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 	bins=""; \
@@ -122,11 +125,12 @@ benchmark:
 	  bins="$$bins ./$$bin"; \
 	done; \
 	OMP_NUM_THREADS=$$threads MKL_NUM_THREADS=$$threads OPENBLAS_NUM_THREADS=$$threads NUMEXPR_NUM_THREADS=$$threads \
-	  python3 python_tests/benchmark_all.py \
+	  python3 python_src/benchmark_all.py \
 	    --bins $$bins \
 	    --batch $$batch --n_heads $$heads --seq_len $$seqlen --head_dim $$headdim \
 	    --seed $$seed --warmup $$warmup --iters $$iters --threads $$threads \
-	    $(if $(filter 1,$(USE_SRUN)),--use-srun)
+	    $(if $(filter 1,$(USE_SRUN)),--use-srun) \
+	    $(if $(BENCH_OUTPUT_FILE),--output-file $(BENCH_OUTPUT_FILE))
 	@$(MAKE) clean
 
 
@@ -142,7 +146,7 @@ test:
 	    $(CXX) $(CXXFLAGS) $(OPENMP) \
 	      -DBACKEND=\"$$backend\" -DVERSION_STR=\"$$ver\" \
 	      -o $(EXEC) main.cpp kernels/$$backend\_thread/$$ver.cpp; \
-	    uv run python3 python_tests/validate_with_torch.py --bin ./$(EXEC) \
+	    python3 python_src/tests/validate_with_torch.py --bin ./$(EXEC) \
 	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337 \
 	      $(if $(filter 1,$(USE_SRUN)),--use-srun); \
 	  done; \
@@ -173,9 +177,9 @@ help:
 	@echo "  BENCH_BACKEND  Backend for benchmark: single (default) or multi"
 	@echo "  BENCH_THREADS  Threads used for both C++ and PyTorch benchmark"
 	@echo "  USE_SRUN=1     Use srun for SLURM environments (proper CPU binding)"
+	@echo "  BENCH_OUTPUT_FILE  Save benchmark results to JSON file"
 	@echo ""
-	@echo "Benchmark outputs a text table by default. Use --json flag in"
-	@echo "python_tests/benchmark_all.py directly for JSON output."
+	@echo "Benchmark outputs a text table by default. Use BENCH_OUTPUT_FILE to save JSON."
 
 # Clean
 clean:
