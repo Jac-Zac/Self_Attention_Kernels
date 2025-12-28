@@ -83,7 +83,6 @@ cuda:
 # Benchmark: build and run single-thread binaries for all discovered versions
 # Uses SINGLE_VERSIONS for discovery; fixed benchmark sizes below
 # Resonable numbers to run it with
-# @batch=8; heads=32; seqlen=4096; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 BENCH_BACKEND ?= single
 BENCH_BACKEND := $(strip $(BENCH_BACKEND))
 ifeq ($(BENCH_BACKEND),)
@@ -115,7 +114,7 @@ endif
 BENCH_OUTPUT_FILE ?=
 
 benchmark:
-	@batch=2; heads=4; seqlen=1024; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
+	@batch=8; heads=32; seqlen=4096; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 	bins=""; \
 	for ver in $(BENCH_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
