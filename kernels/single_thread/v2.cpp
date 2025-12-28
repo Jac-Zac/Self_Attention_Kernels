@@ -1,26 +1,19 @@
 #include "../../include/cmhsa_forward.h"
 #include <float.h>
 #include <math.h>
+#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-// NOTE: v1 improves on v0 by:
-// 1. Respecting the causal mask during computation (not computing masked
-// values)
-// 2. Changing the loop order in the output computation to improve cache
-// locality (making head_dim the innermost loop allows better vectorization)
+// NOTE: This version fuses max-finding with score computation to reduce passes
+// over the data. However, this can actually limit instruction-level parallelism
+// because the max comparison depends on each score computation, creating a
+// data dependency chain. Compare with v1 which separates these operations.
 
 /**
  * Causal Multi-Head Self-Attention forward pass (CPU implementation)
  *
  * Computes: out = softmax(Q K^T / sqrt(d)) V with causal masking
- *
- * @param Q         Query tensor [B, H, S, D]
- * @param K         Key tensor [B, H, S, D]
- * @param V         Value tensor [B, H, S, D]
- * @param out       Output tensor [B, H, S, D]
- * @param attn_weights Workspace base [seq_len_padded]
- * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
  */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
@@ -37,7 +30,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
-      // NOTE: Adding assuem alligned to make allignemnt better
       float *aw = (float *)ASSUME_ALIGNED(attn_weights, ALIGNMENT);
 
       // Base offset for current batch and head: [b, h, :, :]
@@ -47,23 +39,22 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
       // Process each query position
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
         size_t query_offset = bh_offset + query_pos * head_dim_stride;
+
+        // Track max score while computing dot products
+        float max_score = -FLT_MAX;
+
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float dot_product = 0.0f;
           size_t key_offset = bh_offset + key_pos * head_dim_stride;
 
-          // Dot product across head dimension
+#pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
 
-          aw[key_pos] = dot_product * scale;
-        }
-
-        // Step 2: Numerically stable softmax
-        float max_score = -FLT_MAX;
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          if (aw[key_pos] > max_score)
-            max_score = aw[key_pos];
+          float score = dot_product * scale;
+          max_score = score > max_score ? score : max_score;
+          aw[key_pos] = score;
         }
 
         // Compute exp(score - max) and accumulate sum
@@ -74,28 +65,20 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           sum_exp += exp_val;
         }
 
-        const float inv_sum_exp = 1 / sum_exp;
-
-        // Normalize to get probabilities
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          aw[key_pos] *= inv_sum_exp;
-        }
-
-        // Step 3: Weighted sum of values
+        // Weighted sum
         size_t output_offset = bh_offset + query_pos * head_dim_stride;
+        const float inv_sum_exp = 1.0f / sum_exp;
 
-        // Initialize output
         for (size_t d = 0; d < head_dim; d++) {
           out[output_offset + d] = 0.0f;
         }
 
-        // Accumulate: now d is inner loop
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           size_t value_offset = bh_offset + key_pos * head_dim_stride;
-          float attn_weight = aw[key_pos];
+          float normalized_weight = aw[key_pos] * inv_sum_exp;
 
           for (size_t d = 0; d < head_dim; d++) {
-            out[output_offset + d] += attn_weight * V[value_offset + d];
+            out[output_offset + d] += normalized_weight * V[value_offset + d];
           }
         }
       }
