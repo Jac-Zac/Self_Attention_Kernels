@@ -2,19 +2,19 @@
 #SBATCH --nodes=1                   # 1 node
 #SBATCH --ntasks=1                  # total MPI tasks across nodes
 #SBATCH --ntasks-per-node=1         # 1 MPI task on the node
-#SBATCH --cpus-per-task=24          # OpenMP threads per MPI task
+#SBATCH --cpus-per-task=64          # OpenMP threads per MPI task
 #SBATCH --mem=0                     # use all available memory
-##SBATCH --partition=EPYC
-#SBATCH --partition=THIN
+##SBATCH --partition=THIN
+#SBATCH --partition=GENOA
 #SBATCH -t 00:20:00                 # 20 minutes
 ##SBATCH --exclusive                 # Get exclusive access to benchmark
-#SBATCH --job-name=self_attention_scaling
+#SBATCH --job-name=self_attention_strong_scaling
 
 # Set OpenMP environment variables
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
 
-echo "Running scaling benchmark on Orfeo"
+echo "Running strong scaling benchmark on Orfeo"
 echo "Available CPUs: ${SLURM_CPUS_PER_TASK}"
 
 # Minimal Python venv + requirements
@@ -36,25 +36,25 @@ REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requir
 RESULTS_DIR="results"
 mkdir -p "$RESULTS_DIR"
 
-# Thread counts to benchmark (scaled for 24 cores on THIN partition)
-THREAD_COUNTS="1 2 4 8 12 18 24"
+# Thread counts to benchmark (powers of 2 up to 64 cores on GENOA partition)
+THREAD_COUNTS="1 2 4 8 16 32 64"
 
-echo "=== Starting scaling benchmark ==="
+echo "=== Starting strong scaling benchmark ==="
 
 # Run benchmarks for all thread counts
 for threads in $THREAD_COUNTS; do
   echo ">>> $threads threads..."
   export OMP_NUM_THREADS=$threads
-  make benchmark BENCH_BACKEND=multi BENCH_THREADS=$threads USE_SRUN=1 BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_scaling_${threads}t.csv"
+  make benchmark BENCH_BACKEND=multi BENCH_THREADS=$threads USE_SRUN=1 BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_strong_scaling_${threads}t.csv"
 done
 
 # Merge CSVs (keep header from first, skip headers from rest)
-head -1 "$RESULTS_DIR/benchmark_scaling_1t.csv" > "$RESULTS_DIR/benchmark_scaling.csv"
-for f in "$RESULTS_DIR"/benchmark_scaling_*t.csv; do
-  tail -n +2 "$f" >> "$RESULTS_DIR/benchmark_scaling.csv"
+head -1 "$RESULTS_DIR/benchmark_strong_scaling_1t.csv" > "$RESULTS_DIR/benchmark_strong_scaling.csv"
+for f in "$RESULTS_DIR"/benchmark_strong_scaling_*t.csv; do
+  tail -n +2 "$f" >> "$RESULTS_DIR/benchmark_strong_scaling.csv"
 done
-rm -f "$RESULTS_DIR"/benchmark_scaling_*t.csv
+rm -f "$RESULTS_DIR"/benchmark_strong_scaling_*t.csv
 
 echo ""
-echo "=== Scaling benchmark complete ==="
-echo "Results: $RESULTS_DIR/benchmark_scaling.csv"
+echo "=== Strong scaling benchmark complete ==="
+echo "Results: $RESULTS_DIR/benchmark_strong_scaling.csv"

@@ -14,14 +14,6 @@ For educational purposes: each implementation builds upon the previous one, addr
 For benchmarking, I use a parameter setting meant to be representative of modern decoder-only LLM attention (context length and per-head dimension). In particular, I took inspiration from the OLMo 2 architecture as a reasonable reference point for these choices @teamolmo2024olmo2furious.
 
 I validate correctness against PyTorch's reference implementation and analyze performance characteristics on different systems due to resource constraints. 
-In particular each chapter provides the hardware details used for its measurements.
-
-== Reproducibility
-
-Repository: #link("https://github.com/Jac-Zac/Self_Attention_Kernels")[github.com/Jac-Zac/Self_Attention_Kernels].
-All kernels, tests (vs PyTorch SDPA), and benchmarking scripts used for this report are included. 
-
-Additionally an old additional branch named `no_allign` was used to perform some of the benchmakring in the first chapter.
 
 == Hardware Platform
 
@@ -38,18 +30,27 @@ Key specifications relevant to this study:
 The focus of this project is the implementation of the *causal scaled dot-product attention kernel*. 
 The implementation operates directly on pre-projected query, key, and value tensors $bold(Q)$, $bold(K)$, and $bold(V)$, which are assumed to be already partitioned per attention head and laid out contiguously in memory.
 As such, the linear input projections $bold(X) bold(W)_q$, $bold(X) bold(W)_k$, and $bold(X) bold(W)_v$ are not included.
-Furthermore, this implementation computes attention independently for each head. 
-Head concatenation, the output projection $bold(W)_o$, and residual connections are also intentionally omitted, as they can be performed separately from the attention kernel I will focus on.
+Furthermore, this implementation computes attention independently for each head, and correctly allocated. 
+Head concatenation, output projection $bold(W)_o$, and residual connections are also intentionally omitted, as they can be performed separately from the attention kernel I will focus on.
 
 == Motivation and Scope
 
 The quadratic complexity of self-attention ($cal(O)(T^2 d)$ for sequence length $T$ and model dimension $d$) presents fundamental challenges:
 
-- *Memory bandwidth limitations*: Naive implementations repeatedly transfer large matrices between main memory and compute units
 - *Not SIMD optimize*: The computation doesn't leverage SIMD instructions effectivly in the naive implementations 
+- *Memory bandwidth limitations*: Naive implementations repeatedly transfer large matrices between main memory and compute units
 
 Recent work like FlashAttention @dao2022flashattention demonstrates that careful algorithm-hardware co-design can achieve significant speedups (2-4× for training, 10-20× for long-context inference). 
 Though I will start by simply implementing versions from my previous knowledge and then building up to more and more sophisticated tricks.
+
+== Reproducibility
+
+Repository: #link("https://github.com/Jac-Zac/Self_Attention_Kernels")[github.com/Jac-Zac/Self_Attention_Kernels].
+All kernels, tests (vs PyTorch SDPA), and benchmarking scripts used for this report are included. 
+
+Additionally an old additional branch named `no_allign` was used to perform some of the benchmakring in the first chapter.
+
+
 
 == Additional Notes
 

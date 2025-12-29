@@ -7,8 +7,8 @@ endif
 
 NVCC = nvcc
 
-# CFLAGS = -O3 -march=native
-CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
+CFLAGS = -O3 -march=native -ffast-math
+# CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
 # -mprefer-vector-width=512
 # CFLAGS = -O3 -march=native -fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros
 # -fno-tree-loop-vectorize
@@ -111,10 +111,11 @@ else
 endif
 
 # Optional output file for CSV results
+# @batch=8; heads=32; seqlen=4096; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 BENCH_OUTPUT_FILE ?=
 
 benchmark:
-	@batch=8; heads=32; seqlen=4096; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
+	@batch=2; heads=4; seqlen=4096; headdim=128; seed=1337; warmup=5; iters=20; threads=$(BENCH_THREADS); \
 	bins=""; \
 	for ver in $(BENCH_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \

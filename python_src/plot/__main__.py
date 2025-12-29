@@ -36,7 +36,7 @@ def main():
     else:
         from .multi import plot
 
-        output = args.output or RESULTS_DIR / "scaling.png"
+        output = args.output or RESULTS_DIR / "strong_scaling.png"
         plot(data, output, not args.no_show)
 
 

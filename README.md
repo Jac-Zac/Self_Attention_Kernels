@@ -20,6 +20,8 @@ make single VERSION=v2   # Specific version
 ```bash
 ./cmhsa.out                          # Default parameters
 ./cmhsa.out --batch 4 --n_heads 8 --seq_len 512 --head_dim 64
+./cmhsa.out --seed 42 --warmup 10 --iters 50   # Timing control
+./cmhsa.out --threads 8              # Set OpenMP threads (multi only)
 ./cmhsa.out --validate-outdir DIR    # Export Q/K/V/out for validation
 ```
 
@@ -37,7 +39,7 @@ Requires Python deps: `uv sync` or `pip install -r requirements.txt`
 # Single-threaded benchmark
 make benchmark BENCH_BACKEND=single BENCH_THREADS=1
 
-# Multi-threaded scaling
+# Multi-threaded strong scaling
 make benchmark BENCH_BACKEND=multi BENCH_THREADS="1 2 4 8"
 ```
 
@@ -52,14 +54,14 @@ Generate plots locally after downloading benchmark CSV from cluster:
 PYTHONPATH=python_src uv run python -m plot -i results/benchmark.csv
 ```
 
-Outputs saved to `results/single_perf.png` or `results/scaling.png`.
+Outputs saved to `results/single_perf.png` or `results/strong_scaling.png`.
 
 ## Project Structure
 
 ```bash
 include/              # C++ headers
 kernels/
-  single_thread/      # CPU single-thread versions (v0-v4)
+  single_thread/      # CPU single-thread versions (v0-v2)
   multi_thread/       # CPU OpenMP versions
   cuda/               # CUDA kernels
 python_src/
@@ -68,7 +70,7 @@ python_src/
   plot/               # Plotting package
     __main__.py       # Auto-detect CLI
     single.py         # Bar plot for single-thread
-    multi.py          # Scaling plot for multi-thread
+    multi.py          # Strong scaling plot for multi-thread
     utils.py          # Shared plot utilities
   tests/              # Validation scripts
 main.cpp              # Entry point

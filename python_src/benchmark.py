@@ -53,10 +53,10 @@ def parse_args():
 def extract_version(bin_path: str) -> str:
     """
     Extract version name from binary path.
-    
+
     Args:
         bin_path: Path to binary (e.g., './cmhsa_v1.out')
-    
+
     Returns:
         str: Version string (e.g., 'v1')
     """
@@ -75,7 +75,7 @@ def bench_torch(
 ) -> tuple[torch.Tensor, float]:
     """
     Benchmark PyTorch attention implementation.
-    
+
     Args:
         Q: Query tensor [B, H, S, D]
         K: Key tensor [B, H, S, D]
@@ -84,7 +84,7 @@ def bench_torch(
         iters: Number of timed iterations
         use_sdpa: Whether to use scaled_dot_product_attention (True)
                   or manual implementation (False)
-    
+
     Returns:
         tuple: (output tensor, per-iteration time in seconds)
     """
@@ -93,9 +93,9 @@ def bench_torch(
             Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=True
         )
     else:
-        scale = Q.shape[-1] ** -0.5
         S = Q.shape[-2]
         mask = torch.triu(torch.ones(S, S, dtype=torch.bool), diagonal=1)
+        scale = Q.shape[-1] ** -0.5
 
         def fn():
             attn = torch.matmul(Q, K.transpose(-2, -1)) * scale

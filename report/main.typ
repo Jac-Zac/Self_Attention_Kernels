@@ -14,7 +14,7 @@
   ),
   footer-text: "DSAI",
   branch: "Advanced High Performance Computing",
-  academic-year: "2024-2025",
+  academic-year: "2025-2026",
 )
 
 // Enable equation numbering and justify

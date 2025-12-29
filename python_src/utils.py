@@ -44,7 +44,7 @@ def run_c_binary(
 ) -> str:
     """
     Run the C binary with the given parameters.
-    
+
     Args:
         bin_path: Path to the compiled binary
         B: Batch size
@@ -57,7 +57,7 @@ def run_c_binary(
         iters: Number of timed iterations
         validate_outdir: Optional directory to save validation artifacts
         use_srun: Whether to use srun for SLURM CPU affinity binding
-    
+
     Returns:
         stdout: Complete standard output from the binary as a string
     """
@@ -94,11 +94,11 @@ def run_c_binary(
 def _load_tensor(path: Path, shape: tuple) -> torch.Tensor:
     """
     Load a binary float32 tensor from disk as a contiguous torch.Tensor.
-    
+
     Args:
         path: Path to the binary file
         shape: Target shape for the tensor (B, H, S, D)
-    
+
     Returns:
         torch.Tensor: Loaded and reshaped tensor
     """
@@ -111,10 +111,10 @@ def load_artifacts(
 ) -> tuple[dict, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Load all artifacts from C binary output directory.
-    
+
     Args:
         outdir: Directory containing meta.json and binary tensor files
-    
+
     Returns:
         tuple: (meta, Q, K, V, out_c) where meta is a dict with config info
                and Q, K, V, out_c are torch.Tensors of shape (B, H, S, D)
@@ -139,13 +139,13 @@ def load_artifacts(
 def parse_c_time(output: str) -> float:
     """
     Extract per-iteration time in seconds from C binary output.
-    
+
     Args:
         output: Standard output from the C binary
-    
+
     Returns:
         float: Per-iteration execution time in seconds
-    
+
     Raises:
         RuntimeError: If the time pattern is not found in output
     """

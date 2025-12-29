@@ -1,4 +1,4 @@
-"""Scaling plot for multi-threaded benchmark results."""
+"""Strong scaling plot for multi-threaded benchmark results."""
 
 import argparse
 from pathlib import Path
@@ -11,9 +11,11 @@ from .utils import COLORS, RESULTS_DIR, load_csv, save_and_show, split_versions
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Multi-thread scaling plot")
+    p = argparse.ArgumentParser(description="Multi-thread strong scaling plot")
     p.add_argument("-i", "--input", type=Path, default=RESULTS_DIR / "benchmark.csv")
-    p.add_argument("-o", "--output", type=Path, default=RESULTS_DIR / "scaling.png")
+    p.add_argument(
+        "-o", "--output", type=Path, default=RESULTS_DIR / "strong_scaling.png"
+    )
     p.add_argument("--no-show", action="store_true")
     return p.parse_args()
 
