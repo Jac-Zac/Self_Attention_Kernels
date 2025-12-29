@@ -127,12 +127,35 @@ int main(int argc, char *argv[]) {
   out = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
   workspace = (float *)ASSUME_ALIGNED(workspace, ALIGNMENT);
 
-  // Initialize with random small values
-  srand(seed); // Fixed seed for reproducibility
-  for (size_t i = 0; i < qkv_size; i++) {
-    Q[i] = ((float)rand() / (float)RAND_MAX) * 0.1f - 0.05f; // [-0.05, 0.05]
-    K[i] = ((float)rand() / (float)RAND_MAX) * 0.1f - 0.05f;
-    V[i] = ((float)rand() / (float)RAND_MAX) * 0.5f; // [0, 0.5]
+  // Initialize with random small values using NUMA-aware first-touch.
+  // The parallel loop structure matches the kernel's access pattern
+  // (collapse(2) over batch × n_heads) so each thread touches the memory
+  // it will later use, ensuring optimal NUMA placement.
+#pragma omp parallel for collapse(2)
+  for (size_t b = 0; b < batch; b++) {
+    for (size_t h = 0; h < n_heads; h++) {
+
+      // Per-thread seed for thread-safe rand_r()
+      unsigned int thread_seed = seed + (unsigned int)(b * n_heads + h);
+
+      // Matches kernel's bh_offset calculation
+      size_t bh_offset = b * (n_heads * seq_len * head_dim_padded) +
+                         h * (seq_len * head_dim_padded);
+
+      for (size_t s = 0; s < seq_len; s++) {
+        size_t base = bh_offset + s * head_dim_padded;
+
+        for (size_t d = 0; d < head_dim_padded; d++) {
+          size_t idx = base + d;
+          float rand_val = (float)rand_r(&thread_seed) / (float)RAND_MAX;
+
+          Q[idx] = rand_val * 0.1f - 0.05f; // [-0.05, 0.05]
+          K[idx] = rand_val * 0.1f - 0.05f;
+          V[idx] = rand_val * 0.5f; // [0, 0.5]
+          out[idx] = 0.0f;
+        }
+      }
+    }
   }
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");

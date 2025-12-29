@@ -29,7 +29,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
   const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
 
-#pragma omp parallel for
+#pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
@@ -48,7 +48,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           size_t key_offset = bh_offset + key_pos * head_dim_stride;
           float dot_product = 0.0f;
 
-#pragma omp simd reduction(+ : dot_product)
+          // #pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
@@ -72,7 +72,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Step 3: Weighted sum of values
         size_t output_offset = bh_offset + query_pos * head_dim_stride;
 
-#pragma omp simd
+        // #pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
           out[output_offset + d] = 0.0f;
         }

@@ -50,7 +50,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           float dot_product = 0.0f;
           size_t key_offset = bh_offset + key_pos * head_dim_stride;
 
-#pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
@@ -71,11 +70,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Step 3: Weighted sum of values (normalize inline)
         size_t output_offset = bh_offset + query_pos * head_dim_stride;
         const float inv_sum_exp = 1.0f / sum_exp;
-
-        // Initialize output
-        for (size_t d = 0; d < head_dim; d++) {
-          out[output_offset + d] = 0.0f;
-        }
 
         // Accumulate with normalized weights
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
