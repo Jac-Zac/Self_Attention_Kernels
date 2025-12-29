@@ -41,15 +41,12 @@ def run_c_binary(
     iters: int = 1,
     validate_outdir: Path | None = None,
     use_srun: bool = False,
+    is_cuda: bool = False,
 ) -> str:
     """
     Run the C/CUDA binary with the given parameters.
     """
-    # Prepend srun if requested (for SLURM environments)
     cmd = ["srun"] if use_srun else []
-
-    # Check if this is a CUDA binary by the name
-    is_cuda = "cuda" in bin_path.lower()
 
     base_cmd = [
         bin_path,
@@ -69,7 +66,6 @@ def run_c_binary(
         str(iters),
     ]
 
-    # Only add --threads parameter for non-CUDA binaries
     if not is_cuda:
         base_cmd.extend(["--threads", str(max(1, threads))])
 

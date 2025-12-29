@@ -76,6 +76,11 @@ BENCH_SEED ?= 1337
 BENCH_WARMUP ?= 5
 BENCH_ITERS ?= 20
 
+# Common benchmark arguments
+BENCH_COMMON_ARGS = --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) \
+    --seq_len $(BENCH_SEQLEN) --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
+    --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS)
+
 # Map backend to versions and source directory
 ifeq ($(BENCH_BACKEND),cuda)
   BENCH_VERSIONS = $(CUDA_VERSIONS)
@@ -86,6 +91,8 @@ else
   BENCH_SRC_DIR  = kernels/$(if $(filter multi,$(BENCH_BACKEND)),multi,single)_thread
   BENCH_COMPILER = $(CXX) $(CXXFLAGS) $(OPENMP)
 endif
+BENCH_BACKEND_ARG = $(if $(filter cuda,$(BENCH_BACKEND)),--backend cuda,$(if $(filter multi,$(BENCH_BACKEND)),--backend multi,--backend single))
+BENCH_THREADS_ARG = $(if $(filter cuda,$(BENCH_BACKEND)),,--threads $(BENCH_THREADS))
 
 benchmark:
 	@bins=""; \
@@ -97,21 +104,11 @@ benchmark:
 	    $(BENCH_SRC_DIR)/$$ver$(if $(filter cuda,$(BENCH_BACKEND)),.cu,.cpp); \
 	  bins="$$bins ./$$bin"; \
 	done; \
-	$(if $(filter cuda,$(BENCH_BACKEND)), \
-	  python3 python_src/benchmark.py --bins $$bins \
-	    --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) --seq_len $(BENCH_SEQLEN) \
-	    --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
-	    --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS) \
-	    $(if $(filter 1,$(USE_SRUN)),--use-srun) \
-	    $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)), \
+	$(if $(filter 1,$(USE_SRUN)), \
+	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) --use-srun $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)), \
 	  OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) \
 	  OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS) \
-	  python3 python_src/benchmark.py --bins $$bins \
-	    --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) --seq_len $(BENCH_SEQLEN) \
-	    --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
-	    --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS) --threads $(BENCH_THREADS) \
-	    $(if $(filter 1,$(USE_SRUN)),--use-srun) \
-	    $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)))
+	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)))
 	@$(MAKE) clean
 
 # =============================================================================
@@ -150,7 +147,7 @@ help:
 	@echo "Targets:"
 	@echo "  single     Build single-thread backend (VERSION?=v0)"
 	@echo "  multi      Build multi-core backend (OpenMP)"
-	@echo "  cuda       Build CUDA backend (stub)"
+	@echo "  cuda       Build CUDA backend"
 	@echo "  test       Validate all kernel versions against PyTorch"
 	@echo "  benchmark  Benchmark all kernel versions"
 	@echo "  clean      Remove build artifacts"

@@ -19,14 +19,26 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from utils import (RESULTS_DIR, load_artifacts, parse_c_time, run_c_binary,
-                   tmp_artifacts_dir)
+from utils import (
+    RESULTS_DIR,
+    load_artifacts,
+    parse_c_time,
+    run_c_binary,
+    tmp_artifacts_dir,
+)
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Benchmark CMHSA kernels (CSV output)")
     p.add_argument(
         "--bins", type=str, nargs="+", required=True, help="C kernel binaries"
+    )
+    p.add_argument(
+        "--backend",
+        type=str,
+        required=True,
+        choices=["single", "multi", "cuda"],
+        help="Backend type: single-thread, multi-thread, or CUDA",
     )
     p.add_argument(
         "--threads", type=int, nargs="+", default=[1], help="Thread count(s)"
@@ -113,6 +125,7 @@ def main():
     output_path = Path(args.output) if args.output else RESULTS_DIR / "benchmark.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    is_cuda = args.backend == "cuda"
     rows = []
 
     for threads in args.threads:
@@ -135,6 +148,7 @@ def main():
                 args.iters,
                 outdir,
                 args.use_srun,
+                is_cuda,
             )
             first_time = parse_c_time(c_output)
             _, Q, K, V, first_out_c = load_artifacts(outdir)
@@ -181,6 +195,7 @@ def main():
                     args.iters,
                     outdir,
                     args.use_srun,
+                    is_cuda,
                 )
                 c_time = parse_c_time(c_output)
                 _, _, _, _, out_c = load_artifacts(outdir)
