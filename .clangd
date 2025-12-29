@@ -1,13 +1,12 @@
 CompileFlags:
   Add:
-    [
-      -x,
-      c,
-      -std=c17,
-      -I../include,
-      -I/opt/homebrew/Cellar/open-mpi/5.0.9/include,
-      -L/opt/homebrew/Cellar/open-mpi/5.0.9/lib,
-      -fopenmp,
-      -D_OPENMP,
-      -DUSE_CUDA,
-    ]
+    - -xcuda
+    - --cuda-host-only
+    - --std=c++17
+    - -I../include
+    - -I/opt/homebrew/Cellar/open-mpi/5.0.9/include
+    - -fopenmp
+    - -D_OPENMP
+    - -DUSE_CUDA
+    - -Wno-unknown-cuda-version
+    - -Wno-unknown-attributes
