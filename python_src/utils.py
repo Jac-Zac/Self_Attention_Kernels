@@ -43,48 +43,38 @@ def run_c_binary(
     use_srun: bool = False,
 ) -> str:
     """
-    Run the C binary with the given parameters.
-
-    Args:
-        bin_path: Path to the compiled binary
-        B: Batch size
-        H: Number of attention heads
-        S: Sequence length
-        D: Head dimension
-        seed: Random seed for reproducibility
-        threads: Number of threads to use
-        warmup: Number of warmup iterations (not timed)
-        iters: Number of timed iterations
-        validate_outdir: Optional directory to save validation artifacts
-        use_srun: Whether to use srun for SLURM CPU affinity binding
-
-    Returns:
-        stdout: Complete standard output from the binary as a string
+    Run the C/CUDA binary with the given parameters.
     """
     # Prepend srun if requested (for SLURM environments)
     cmd = ["srun"] if use_srun else []
 
-    cmd.extend(
-        [
-            bin_path,
-            "--batch",
-            str(B),
-            "--n_heads",
-            str(H),
-            "--seq_len",
-            str(S),
-            "--head_dim",
-            str(D),
-            "--seed",
-            str(seed),
-            "--warmup",
-            str(warmup),
-            "--iters",
-            str(iters),
-            "--threads",
-            str(max(1, threads)),
-        ]
-    )
+    # Check if this is a CUDA binary by the name
+    is_cuda = "cuda" in bin_path.lower()
+
+    base_cmd = [
+        bin_path,
+        "--batch",
+        str(B),
+        "--n_heads",
+        str(H),
+        "--seq_len",
+        str(S),
+        "--head_dim",
+        str(D),
+        "--seed",
+        str(seed),
+        "--warmup",
+        str(warmup),
+        "--iters",
+        str(iters),
+    ]
+
+    # Only add --threads parameter for non-CUDA binaries
+    if not is_cuda:
+        base_cmd.extend(["--threads", str(max(1, threads))])
+
+    cmd.extend(base_cmd)
+
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])
 
@@ -147,11 +137,17 @@ def parse_c_time(output: str) -> float:
         float: Per-iteration execution time in seconds
 
     Raises:
-        RuntimeError: If the time pattern is not found in output
+        RuntimeError: If time pattern is not found in output
     """
-    m = re.search(r"CPU attention forward \(per-iter\):\s*([0-9.]+)\s*s", output)
+    # Try CPU pattern first, then CUDA pattern
+    m = re.search(
+        r"(CPU|CUDA) attention forward \(per-iter\):\s*([0-9.]+)\s*(ms|s)", output
+    )
     if not m:
         raise RuntimeError(
             "Could not parse per-iter time from binary output.\nOutput was:\n" + output
         )
-    return float(m.group(1))
+    time_value = float(m.group(2))
+    unit = m.group(3)
+    # Convert ms to s if needed
+    return time_value / 1000.0 if unit == "ms" else time_value

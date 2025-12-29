@@ -38,26 +38,17 @@ int main(int argc, char *argv[]) {
   const size_t head_dim_padded = round_up_pow2(cfg.head_dim, VEC_PADDING);
   const size_t qkv_size =
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
-  const size_t stats_size = cfg.batch * cfg.n_heads * cfg.seq_len;
 
   // Allocate CUDA managed memory
-  float *Q, *K, *V, *out, *softmax_lse, *softmax_max;
+  float *Q, *K, *V, *out;
   CUDA_CHECK(cudaMallocManaged(&Q, qkv_size * sizeof(float)));
   CUDA_CHECK(cudaMallocManaged(&K, qkv_size * sizeof(float)));
   CUDA_CHECK(cudaMallocManaged(&V, qkv_size * sizeof(float)));
   CUDA_CHECK(cudaMallocManaged(&out, qkv_size * sizeof(float)));
-  CUDA_CHECK(cudaMallocManaged(&softmax_lse, stats_size * sizeof(float)));
-  CUDA_CHECK(cudaMallocManaged(&softmax_max, stats_size * sizeof(float)));
 
   // Initialize with random values (CPU, works on managed memory)
   init_random_tensors(Q, K, V, out, cfg.batch, cfg.n_heads, cfg.seq_len,
                       head_dim_padded, cfg.seed);
-
-  // Initialize softmax buffers
-  for (size_t i = 0; i < stats_size; i++) {
-    softmax_lse[i] = 0.0f;
-    softmax_max[i] = 0.0f;
-  }
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
@@ -68,7 +59,7 @@ int main(int argc, char *argv[]) {
 
   // Warm-up runs
   for (int i = 0; i < cfg.warmup; i++) {
-    cmhsa_forward_cuda(Q, K, V, out, softmax_lse, softmax_max, dims);
+    cmhsa_forward_cuda(Q, K, V, out, dims);
   }
 
   // Timed iterations using CUDA events
@@ -80,7 +71,7 @@ int main(int argc, char *argv[]) {
   float checksum = 0.0f;
   for (int i = 0; i < cfg.iters; i++) {
     CUDA_CHECK(cudaEventRecord(start));
-    cmhsa_forward_cuda(Q, K, V, out, softmax_lse, softmax_max, dims);
+    cmhsa_forward_cuda(Q, K, V, out, dims);
     CUDA_CHECK(cudaEventRecord(end));
     CUDA_CHECK(cudaEventSynchronize(end));
 
@@ -102,7 +93,7 @@ int main(int argc, char *argv[]) {
 
   // Validation mode: write artifacts for Python
   if (cfg.validate) {
-    struct Outputs outputs = {Q, K, V, out, qkv_size, stats_size, 0};
+    struct Outputs outputs = {Q, K, V, out, qkv_size, 0, 0};
     write_validation_artifacts(cfg.validate_dir, &cfg, &outputs);
   }
 
@@ -113,8 +104,6 @@ int main(int argc, char *argv[]) {
   cudaFree(K);
   cudaFree(V);
   cudaFree(out);
-  cudaFree(softmax_lse);
-  cudaFree(softmax_max);
 
   printf("\nCompleted successfully!\n");
   return 0;

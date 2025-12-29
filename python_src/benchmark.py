@@ -19,13 +19,8 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from utils import (
-    RESULTS_DIR,
-    load_artifacts,
-    parse_c_time,
-    run_c_binary,
-    tmp_artifacts_dir,
-)
+from utils import (RESULTS_DIR, load_artifacts, parse_c_time, run_c_binary,
+                   tmp_artifacts_dir)
 
 
 def parse_args():

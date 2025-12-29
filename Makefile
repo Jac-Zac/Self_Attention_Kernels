@@ -77,26 +77,41 @@ BENCH_WARMUP ?= 5
 BENCH_ITERS ?= 20
 
 # Map backend to versions and source directory
-BENCH_VERSIONS = $(if $(filter multi,$(BENCH_BACKEND)),$(MULTI_VERSIONS),$(SINGLE_VERSIONS))
-BENCH_SRC_DIR  = kernels/$(if $(filter multi,$(BENCH_BACKEND)),multi,single)_thread
+ifeq ($(BENCH_BACKEND),cuda)
+  BENCH_VERSIONS = $(CUDA_VERSIONS)
+  BENCH_SRC_DIR  = kernels/cuda
+  BENCH_COMPILER = $(NVCC) $(NVCC_FLAGS)
+else
+  BENCH_VERSIONS = $(if $(filter multi,$(BENCH_BACKEND)),$(MULTI_VERSIONS),$(SINGLE_VERSIONS))
+  BENCH_SRC_DIR  = kernels/$(if $(filter multi,$(BENCH_BACKEND)),multi,single)_thread
+  BENCH_COMPILER = $(CXX) $(CXXFLAGS) $(OPENMP)
+endif
 
 benchmark:
 	@bins=""; \
 	for ver in $(BENCH_VERSIONS); do \
 	  bin=cmhsa_$$ver.out; \
 	  echo "Building $$bin (backend=$(BENCH_BACKEND), version=$$ver)"; \
-	  $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" \
-	    -o $$bin main.cpp $(BENCH_SRC_DIR)/$$ver.cpp; \
+	  $(BENCH_COMPILER) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" \
+	    -o $$bin $(if $(filter cuda,$(BENCH_BACKEND)),main.cu,main.cpp) \
+	    $(BENCH_SRC_DIR)/$$ver$(if $(filter cuda,$(BENCH_BACKEND)),.cu,.cpp); \
 	  bins="$$bins ./$$bin"; \
 	done; \
-	OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) \
-	OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS) \
-	python3 python_src/benchmark.py --bins $$bins \
-	  --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) --seq_len $(BENCH_SEQLEN) \
-	  --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
-	  --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS) --threads $(BENCH_THREADS) \
-	  $(if $(filter 1,$(USE_SRUN)),--use-srun) \
-	  $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE))
+	$(if $(filter cuda,$(BENCH_BACKEND)), \
+	  python3 python_src/benchmark.py --bins $$bins \
+	    --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) --seq_len $(BENCH_SEQLEN) \
+	    --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
+	    --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS) \
+	    $(if $(filter 1,$(USE_SRUN)),--use-srun) \
+	    $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)), \
+	  OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) \
+	  OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS) \
+	  python3 python_src/benchmark.py --bins $$bins \
+	    --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) --seq_len $(BENCH_SEQLEN) \
+	    --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
+	    --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS) --threads $(BENCH_THREADS) \
+	    $(if $(filter 1,$(USE_SRUN)),--use-srun) \
+	    $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)))
 	@$(MAKE) clean
 
 # =============================================================================
@@ -149,7 +164,7 @@ help:
 	@echo "  USE_SRUN=1         Use srun for SLURM environments"
 	@echo ""
 	@echo "Benchmark Variables:"
-	@echo "  BENCH_BACKEND      Backend: single (default) or multi"
+	@echo "  BENCH_BACKEND      Backend: single (default), multi, or cuda"
 	@echo "  BENCH_THREADS      Thread count (default: 1)"
 	@echo "  BENCH_BATCH        Batch size (default: 2)"
 	@echo "  BENCH_HEADS        Number of heads (default: 4)"

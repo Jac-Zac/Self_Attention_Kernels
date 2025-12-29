@@ -9,4 +9,5 @@ CompileFlags:
       -L/opt/homebrew/Cellar/open-mpi/5.0.9/lib,
       -fopenmp,
       -D_OPENMP,
+      -DUSE_CUDA,
     ]

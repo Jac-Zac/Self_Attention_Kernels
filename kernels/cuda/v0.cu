@@ -1,5 +1,7 @@
 #ifdef USE_CUDA
 #include "../../include/cmhsa_forward.h"
+#include <cuda_runtime.h>
+#include <math.h>
 
 __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
                                      const float *RESTRICT K,
