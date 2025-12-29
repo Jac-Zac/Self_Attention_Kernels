@@ -57,8 +57,8 @@ NVCC_CFLAGS = -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA
 # Discovered kernel versions
 # SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
 # NOTE: For now let's exclude v0 since it takes a lot of time to compute
-SINGLE_VERSIONS := $(filter-out v0,$(basename $(notdir $(wildcard kernels/single_thread/v*.cpp))))
 # SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
+SINGLE_VERSIONS := $(filter-out v0,$(basename $(notdir $(wildcard kernels/single_thread/v*.cpp))))
 MULTI_VERSIONS := $(basename $(notdir $(wildcard kernels/multi_thread/v*.cpp)))
 CUDA_VERSIONS := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 
