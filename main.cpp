@@ -3,15 +3,9 @@
 #include "include/parser.hpp"
 #include "include/timing.h"
 #include "include/utils.hpp"
-#include "include/vector_pragmas.h"
 #include <stdio.h>
-#include <stdlib.h>
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
-// Default values that are resolved when using make ...
+// Default values resolved at compile time via make
 #ifndef BACKEND
 #define BACKEND "unknown"
 #endif
@@ -21,198 +15,74 @@
 
 int main(int argc, char *argv[]) {
   RunConfig cfg;
-
-  // Parse arguments into a struct
   if (parse_args(argc, argv, &cfg) != 0) {
-    return 1; // invalid flags or usage
-  }
-
-  // Get the parsed arguments
-  const size_t batch = cfg.batch;
-  const size_t n_heads = cfg.n_heads;
-  const size_t seq_len = cfg.seq_len;
-  const size_t head_dim = cfg.head_dim;
-  unsigned seed = cfg.seed;
-
-  // Validate dimensions
-  if (batch == 0 || n_heads == 0 || seq_len == 0 || head_dim == 0) {
-    fprintf(stderr, "Error: all dimensions must be positive\n");
-    return 1;
-  }
-  if (batch > 1024 || n_heads > 128 || seq_len > 16384 || head_dim > 512) {
-    fprintf(stderr,
-            "Warning: dimensions are very large and may cause memory issues\n");
-  }
-
-  // Warm-up and timed iterations (configurable via flags)
-  const int warmup = cfg.warmup;
-  const int iters = cfg.iters;
-
-  if (warmup < 0 || iters <= 0) {
-    fprintf(stderr,
-            "Error: warmup must be non-negative and iters must be positive\n");
     return 1;
   }
 
-  int validate = cfg.validate;
-  const char *validate_dir = cfg.validate_dir;
-
-  // Resolve thread count for per-thread workspace slices
-  int threads = cfg.threads;
-#ifdef _OPENMP
-  if (threads <= 0) {
-    threads = omp_get_max_threads();
-  }
-  if (threads < 1)
-    threads = 1;
-  omp_set_num_threads(threads);
-#else
-  if (threads <= 0) {
-    const char *env_threads = getenv("OMP_NUM_THREADS");
-    if (env_threads && env_threads[0] != '\0') {
-      int val = (int)strtol(env_threads, NULL, 10);
-      if (val > 0)
-        threads = val;
-    }
-  }
-  if (threads < 1)
-    threads = 1;
-#endif
+  int threads = resolve_thread_count(cfg.threads);
   printf("backend=%s version=%s\n", BACKEND, VERSION_STR);
-  printf("batch=%zu n_heads=%zu seq_len=%zu head_dim=%zu threads=%d\n", batch,
-         n_heads, seq_len, head_dim, threads);
+  printf("batch=%zu n_heads=%zu seq_len=%zu head_dim=%zu threads=%d\n",
+         cfg.batch, cfg.n_heads, cfg.seq_len, cfg.head_dim, threads);
 
-  // Setup dimensions
-  AttentionDims dims = {batch, n_heads, seq_len, head_dim};
+  // Setup dimensions and compute padded sizes
+  AttentionDims dims = {cfg.batch, cfg.n_heads, cfg.seq_len, cfg.head_dim};
+  const size_t head_dim_padded = round_up_pow2(cfg.head_dim, VEC_PADDING);
+  const size_t seq_len_padded = round_up_pow2(cfg.seq_len, VEC_PADDING);
+  const size_t qkv_size = cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
-  // Compute padded dimensions for strides and scratch
-  const size_t head_dim_padded = round_up_pow2(head_dim, VEC_PADDING);
-  const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
-
-  // Calculate buffer sizes (use padded strides for storage)
-  size_t qkv_size = batch * n_heads * seq_len * head_dim_padded;
-  size_t stats_size = batch * n_heads * seq_len; // logical stats count
-
-  // Allocate input/output tensors with aligned memory via macros
-  float *RESTRICT Q = NULL;
-  float *RESTRICT K = NULL;
-  float *RESTRICT V = NULL;
-  float *RESTRICT out = NULL;
-  float *RESTRICT workspace = NULL;
-
-  int err = 0;
-  err |= (ALIGNED_ALLOC_FLOAT(Q, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(K, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(V, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(out, qkv_size) != 0);
-
-  // Per-thread scratch slices: threads * seq_len_padded
-  err |=
-      (ALIGNED_ALLOC_FLOAT(workspace, (size_t)threads * seq_len_padded) != 0);
-
-  // Check allocations
-  if (err) {
-    fprintf(stderr, "Error: aligned memory allocation failed\n");
-    free(Q);
-    free(K);
-    free(V);
-    free(out);
-    free(workspace);
+  // Allocate tensors
+  struct Tensors t;
+  if (allocate_tensors(&t, qkv_size, (size_t)threads * seq_len_padded) != 0) {
     return 1;
   }
 
-  Q = (float *)ASSUME_ALIGNED(Q, ALIGNMENT);
-  K = (float *)ASSUME_ALIGNED(K, ALIGNMENT);
-  V = (float *)ASSUME_ALIGNED(V, ALIGNMENT);
-  out = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
-  workspace = (float *)ASSUME_ALIGNED(workspace, ALIGNMENT);
-
-  // Initialize with random small values using NUMA-aware first-touch.
-  // The parallel loop structure matches the kernel's access pattern
-  // (collapse(2) over batch × n_heads) so each thread touches the memory
-  // it will later use, ensuring optimal NUMA placement.
-#pragma omp parallel for collapse(2)
-  for (size_t b = 0; b < batch; b++) {
-    for (size_t h = 0; h < n_heads; h++) {
-
-      // Per-thread seed for thread-safe rand_r()
-      unsigned int thread_seed = seed + (unsigned int)(b * n_heads + h);
-
-      // Matches kernel's bh_offset calculation
-      size_t bh_offset = b * (n_heads * seq_len * head_dim_padded) +
-                         h * (seq_len * head_dim_padded);
-
-      for (size_t s = 0; s < seq_len; s++) {
-        size_t base = bh_offset + s * head_dim_padded;
-
-        for (size_t d = 0; d < head_dim_padded; d++) {
-          size_t idx = base + d;
-          float rand_val = (float)rand_r(&thread_seed) / (float)RAND_MAX;
-
-          Q[idx] = rand_val * 0.1f - 0.05f; // [-0.05, 0.05]
-          K[idx] = rand_val * 0.1f - 0.05f;
-          V[idx] = rand_val * 0.5f; // [0, 0.5]
-          out[idx] = 0.0f;
-        }
-      }
-    }
-  }
+  // Initialize with random values (NUMA-aware)
+  init_random_tensors(t.Q, t.K, t.V, t.out, cfg.batch, cfg.n_heads, cfg.seq_len,
+                      head_dim_padded, cfg.seed);
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
-  for (size_t d = 0; d < head_dim && d < 5; d++) {
-    VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, Q[d]);
+  for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
+    VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, t.Q[d]);
   }
 
   printf("\nRunning attention forward pass...\n");
 
-  // Warm-up runs (not timed)
-  for (int i = 0; i < warmup; i++) {
-    cmhsa_forward_cpu(Q, K, V, out, workspace, dims);
+  // Warm-up runs
+  for (int i = 0; i < cfg.warmup; i++) {
+    cmhsa_forward_cpu(t.Q, t.K, t.V, t.out, t.workspace, dims);
   }
 
-  // Timed loop
+  // Timed iterations
   unsigned long long total_ns = 0ULL;
   float checksum = 0.0f;
-
-  // Perform some iterations to measure a more accurate timing
-  for (int i = 0; i < iters; i++) {
+  for (int i = 0; i < cfg.iters; i++) {
     struct timespec start, end;
     NOW(start);
-    cmhsa_forward_cpu(Q, K, V, out, workspace, dims);
+    cmhsa_forward_cpu(t.Q, t.K, t.V, t.out, t.workspace, dims);
     NOW(end);
     total_ns += ns_diff(start, end);
-
-    // Accumulate a small checksum to keep the compiler honest
-    if (head_dim > 0) {
-      checksum += out[0];
-    }
+    if (cfg.head_dim > 0)
+      checksum += t.out[0];
   }
 
   print_timing("CPU attention forward (total)", total_ns);
   printf("CPU attention forward (per-iter): %.6f s\n",
-         (double)total_ns / (double)iters / 1e9);
+         (double)total_ns / (double)cfg.iters / 1e9);
   VERBOSE_PRINT("Checksum (sum of out[0] over iters): %f\n", checksum);
 
-  // Optional sample outputs
   VERBOSE_PRINT("\nSample output values (first head, first token):\n");
-  for (size_t d = 0; d < head_dim && d < 5; d++) {
-    VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, out[d]);
+  for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
+    VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, t.out[d]);
   }
 
-  // Validation mode: write artifacts for Python and exit
-  if (validate) {
-    struct Outputs outputs = {Q, K, V, out, qkv_size, stats_size, 0};
-
-    write_validation_artifacts(validate_dir, &cfg, &outputs);
+  // Validation mode: write artifacts for Python
+  if (cfg.validate) {
+    size_t stats_size = cfg.batch * cfg.n_heads * cfg.seq_len;
+    struct Outputs outputs = {t.Q, t.K, t.V, t.out, qkv_size, stats_size, 0};
+    write_validation_artifacts(cfg.validate_dir, &cfg, &outputs);
   }
 
-  // Cleanup
-  free(Q);
-  free(K);
-  free(V);
-  free(workspace);
-  free(out);
-
+  free_tensors(&t);
   printf("\nCompleted successfully!\n");
   return 0;
 }

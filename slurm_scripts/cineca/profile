@@ -6,19 +6,19 @@
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH --exclusive                 # Get exclusive access for profiling
 #SBATCH -A uTS25_Tornator_0
-#SBATCH -t 00:10:00                 # 10 minutes for profiling
+#SBATCH -t 00:15:00                 # 20 minutes for profiling
 #SBATCH --job-name=self_attention_profile
 
 # =======================================================
 # Configurable parameters (override via environment)
 # =======================================================
-VERSION="${VERSION:-v1}"
+VERSION="${VERSION:-v0}"
 BACKEND="${BACKEND:-multi}"
 THREADS="${THREADS:-${SLURM_CPUS_PER_TASK}}"
 BATCH="${BATCH:-8}"
-N_HEADS="${N_HEADS:-16}"
+N_HEADS="${N_HEADS:-32}"
 SEQ_LEN="${SEQ_LEN:-2048}"
-HEAD_DIM="${HEAD_DIM:-64}"
+HEAD_DIM="${HEAD_DIM:-128}"
 
 # =======================================================
 # Load the required modules
@@ -38,7 +38,7 @@ export OMP_DISPLAY_AFFINITY=TRUE
 # Setup
 # =======================================================
 EXEC=./cmhsa.out
-ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM}"
+ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads ${THREADS} --warmup 1 --iters 10"
 RESULT_DIR="vtune_${BACKEND}_${VERSION}"
 
 echo "=============================================="
@@ -50,6 +50,11 @@ echo "=============================================="
 echo ">>> Building..."
 make ${BACKEND} VERSION=${VERSION} DEBUG=1
 
+# VTune: Hotspots (identify where time is spent)
+echo ">>> VTune hotspots..."
+vtune -collect hotspots -result-dir ${RESULT_DIR}_hotspots \
+      -- ${EXEC} ${ARGS}
+
 # VTune: Microarchitecture Exploration
 echo ">>> VTune uarch-exploration..."
 vtune -collect uarch-exploration -result-dir ${RESULT_DIR}_uarch \
@@ -58,6 +63,11 @@ vtune -collect uarch-exploration -result-dir ${RESULT_DIR}_uarch \
 # VTune: Memory Access
 echo ">>> VTune memory-access..."
 vtune -collect memory-access -result-dir ${RESULT_DIR}_mem \
+      -- ${EXEC} ${ARGS}
+
+# VTune: Threading (detect load imbalance, contention)
+echo ">>> VTune threading..."
+vtune -collect threading -result-dir ${RESULT_DIR}_threading \
       -- ${EXEC} ${ARGS}
 
 # Perf stat
@@ -69,4 +79,4 @@ perf stat -d -d \
 
 echo ""
 echo "=== Done ==="
-echo "VTune results: ${RESULT_DIR}_uarch, ${RESULT_DIR}_mem"
+echo "VTune results: ${RESULT_DIR}_hotspots, ${RESULT_DIR}_uarch, ${RESULT_DIR}_mem, ${RESULT_DIR}_threading"

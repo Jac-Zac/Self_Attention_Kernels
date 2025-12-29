@@ -53,20 +53,19 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
 
 // Parallelize over batch × heads (collapse gives more work units)
-#pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(3)
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
-
-      // Each thread gets its own scratch space for attention weights
-      size_t thread_id = (size_t)omp_get_thread_num();
-      float *aw = attn_base + thread_id * seq_len_padded;
-
-      // Base offset for current batch and head: [b, h, :, :]
-      size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
-                         h * (seq_len * head_dim_stride);
-
-      // Process each query position
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
+
+        // Each thread gets its own scratch space for attention weights
+        size_t thread_id = (size_t)omp_get_thread_num();
+        float *aw = attn_base + thread_id * seq_len_padded;
+
+        // Base offset for current batch and head: [b, h, :, :]
+        size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
+                           h * (seq_len * head_dim_stride);
+
         size_t query_offset = bh_offset + query_pos * head_dim_stride;
 
         // Track max score while computing dot products (fused pass)

@@ -35,6 +35,26 @@ inline int check_next_arg(int i, int argc, const char *flag) {
   return 0;
 }
 
+// Validate parsed config, returns 0 on success
+inline int validate_config(const RunConfig *cfg) {
+  if (cfg->batch == 0 || cfg->n_heads == 0 || cfg->seq_len == 0 ||
+      cfg->head_dim == 0) {
+    fprintf(stderr, "Error: all dimensions must be positive\n");
+    return 1;
+  }
+  if (cfg->warmup < 0 || cfg->iters <= 0) {
+    fprintf(stderr,
+            "Error: warmup must be non-negative and iters must be positive\n");
+    return 1;
+  }
+  if (cfg->batch > 1024 || cfg->n_heads > 128 || cfg->seq_len > 16384 ||
+      cfg->head_dim > 512) {
+    fprintf(stderr,
+            "Warning: dimensions are very large and may cause memory issues\n");
+  }
+  return 0;
+}
+
 inline int parse_args(int argc, char **argv, RunConfig *cfg) {
   // defaults
   cfg->batch = 2;
@@ -93,5 +113,6 @@ inline int parse_args(int argc, char **argv, RunConfig *cfg) {
       return 1;
     }
   }
-  return 0;
+
+  return validate_config(cfg);
 }

@@ -48,7 +48,7 @@ def save_and_show(fig, path: Path | None, show: bool) -> None:
     plt.tight_layout()
     if path:
         path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(path, dpi=150)
+        plt.savefig(path, dpi=200)
         print(f"Saved: {path}")
     if show:
         plt.show()
