@@ -24,16 +24,12 @@ fi
 # 2. Load CUDA module for the kernel compilation
 module load cuda
 
-# 3. Use uv to manage the environment
-# We specify Python 3.11 to avoid your previous Python 3.9 issues
-export UV_PYTHON=python3.11
-
 echo "Syncing dependencies..."
 # uv sync ensures the virtualenv (.venv) matches your pyproject.toml exactly
 # It handles the Python installation, venv creation, and pip installs in one go.
 uv sync
 
-# 4. Activate the environment created by uv
+# 3. Activate the environment created by uv
 source .venv/bin/activate
 
 echo "=== Starting GPU benchmark ==="

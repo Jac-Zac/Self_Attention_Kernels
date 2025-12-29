@@ -33,8 +33,7 @@ CXX_WARN := $(if $(filter clang++,$(CXX)),$(WARN_CLANG),$(WARN_GCC))
 # Combined flags
 CXXFLAGS  := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
 CUDA_ARCH ?= sm_70
-NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA -gencode arch=compute_70,code=sm_70
-
+NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -arch=$(CUDA_ARCH) -DUSE_CUDA 
 
 # Discovered kernel versions
 SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
