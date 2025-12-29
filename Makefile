@@ -32,10 +32,11 @@ CXX_WARN := $(if $(filter clang++,$(CXX)),$(WARN_CLANG),$(WARN_GCC))
 
 # Combined flags
 CXXFLAGS  := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
-NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA
+CUDA_ARCH ?= sm_70
+NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -DUSE_CUDA -arch=$(CUDA_ARCH)
 
 # Discovered kernel versions
-MULTI_VERSIONS  := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
+SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
 MULTI_VERSIONS  := $(basename $(notdir $(wildcard kernels/multi_thread/v*.cpp)))
 CUDA_VERSIONS   := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 
@@ -56,7 +57,7 @@ multi:
 
 cuda:
 	$(NVCC) $(NVCC_FLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$(VERSION)\" \
-		-o $(EXEC) main.cpp kernels/cuda/$(VERSION).cu
+		-o $(EXEC) main.cu kernels/cuda/$(VERSION).cu
 
 # =============================================================================
 # Benchmark
@@ -144,6 +145,7 @@ help:
 	@echo "  DEBUG=1            Enable debug build"
 	@echo "  VERBOSE=1          Enable verbose output"
 	@echo "  CXX=clang++        Use clang instead of gcc"
+	@echo "  CUDA_ARCH=sm_70    CUDA architecture (default: sm_70, options: sm_70, sm_80, sm_86, sm_89)"
 	@echo "  USE_SRUN=1         Use srun for SLURM environments"
 	@echo ""
 	@echo "Benchmark Variables:"

@@ -72,7 +72,7 @@ inline void free_outputs(struct Outputs *outputs) {
 // Thread count resolution
 // ============================================================================
 
-#ifdef _OPENMP
+#if defined(_OPENMP) && !defined(USE_CUDA)
 #include <omp.h>
 #endif
 
@@ -159,10 +159,6 @@ inline void free_tensors(struct Tensors *t) {
   free(t->workspace);
   t->Q = t->K = t->V = t->out = t->workspace = NULL;
 }
-
-// ============================================================================
-// Random initialization (NUMA-aware first-touch pattern)
-// ============================================================================
 
 /**
  * Initialize Q, K, V, out with random values using NUMA-aware first-touch.

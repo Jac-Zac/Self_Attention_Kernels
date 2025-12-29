@@ -76,19 +76,10 @@ void cmhsa_forward_cpu(
 #ifdef USE_CUDA
 
 // ============================================================================
-//
 // CUDA Implementation of Multi-Head Self-Attention
 // ============================================================================
-// TODO: Update this signature to match the CPU version (use AttentionDims,
-//       add softmax_lse/softmax_max buffers, use RESTRICT macro)
-// ============================================================================
-void cmhsa_forward_cuda(
-    const float *RESTRICT Q,     // [batch, n_heads, seq_len, head_dim]
-    const float *RESTRICT K,     // [batch, n_heads, seq_len, head_dim]
-    const float *RESTRICT V,     // [batch, n_heads, seq_len, head_dim]
-    float *RESTRICT out,         // [batch, n_heads, seq_len, head_dim]
-    float *RESTRICT softmax_lse, // [batch, n_heads, seq_len]
-    float *RESTRICT softmax_max, // [batch, n_heads, seq_len]
-    const AttentionDims dims);
+void cmhsa_forward_cuda(const float *RESTRICT Q, const float *RESTRICT K,
+                        const float *RESTRICT V, float *RESTRICT out,
+                        const AttentionDims dims);
 
 #endif
