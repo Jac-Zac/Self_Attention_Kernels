@@ -36,14 +36,14 @@ Requires Python deps: `uv sync` or `pip install -r requirements.txt`
 ## Benchmark
 
 ```bash
-# Single-threaded benchmark
-make benchmark BENCH_BACKEND=single BENCH_THREADS=1
-
-# Multi-threaded strong scaling
-make benchmark BENCH_BACKEND=multi BENCH_THREADS="1 2 4 8"
+make benchmark                        # Default: single-threaded
+make benchmark BENCH_BACKEND=multi BENCH_THREADS=8   # Multi-threaded
+make benchmark BENCH_OUTPUT_FILE=results.csv         # Save to CSV
 ```
 
-Results saved to `results/benchmark.csv`.
+Override parameters as needed: `BENCH_BATCH`, `BENCH_HEADS`, `BENCH_SEQLEN`, `BENCH_HEADDIM`, `BENCH_ITERS`.
+
+See `make help` for all options.
 
 ## Plotting
 
@@ -61,7 +61,7 @@ Outputs saved to `results/single_perf.png` or `results/strong_scaling.png`.
 ```bash
 include/              # C++ headers
 kernels/
-  single_thread/      # CPU single-thread versions (v0-v2)
+  single_thread/      # CPU single-thread versions
   multi_thread/       # CPU OpenMP versions
   cuda/               # CUDA kernels
 python_src/

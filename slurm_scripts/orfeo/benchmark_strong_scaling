@@ -45,7 +45,9 @@ echo "=== Starting strong scaling benchmark ==="
 for threads in $THREAD_COUNTS; do
   echo ">>> $threads threads..."
   export OMP_NUM_THREADS=$threads
-  make benchmark BENCH_BACKEND=multi BENCH_THREADS=$threads USE_SRUN=1 BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_strong_scaling_${threads}t.csv"
+  make benchmark BENCH_BACKEND=multi BENCH_THREADS=$threads USE_SRUN=1 \
+    BENCH_BATCH=2 BENCH_HEADS=32 BENCH_SEQLEN=4096 BENCH_ITERS=25 \
+    BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_strong_scaling_${threads}t.csv"
 done
 
 # Merge CSVs (keep header from first, skip headers from rest)

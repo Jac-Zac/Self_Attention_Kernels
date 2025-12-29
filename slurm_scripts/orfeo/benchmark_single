@@ -35,7 +35,10 @@ echo "=== Starting single-threaded benchmark ==="
 echo "Benchmarking all single-threaded kernel versions..."
 
 # Run benchmark for single-threaded backend (all versions)
-make benchmark BENCH_BACKEND=single BENCH_THREADS=1 USE_SRUN=1 BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_single.csv"
+make benchmark BENCH_BACKEND=single BENCH_THREADS=1 USE_SRUN=1 \
+  BENCH_BATCH=1 BENCH_HEADS=4 BENCH_SEQLEN=4096 BENCH_HEADDIM=128 \
+  BENCH_SEED=1337 BENCH_WARMUP=5 BENCH_ITERS=25 \
+  BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_single.csv"
 
 echo ""
 echo "=== Single-threaded benchmark complete ==="
