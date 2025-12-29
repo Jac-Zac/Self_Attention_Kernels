@@ -1,0 +1,51 @@
+#!/bin/bash
+#SBATCH --nodes=1                   # 1 node
+#SBATCH --ntasks=1                  # total MPI tasks across nodes
+#SBATCH --ntasks-per-node=1         # 1 MPI task on the node
+#SBATCH --cpus-per-task=4           # Use more CPUs for GPU data prep
+#SBATCH --mem=50G                   # memory for GPU run
+#SBATCH --partition=GPU
+#SBATCH --gres=gpu:V100:1           # request 1 V100 GPU
+#SBATCH -t 00:05:00                 # 30 minutes
+##SBATCH --exclusive                # optional exclusive access
+#SBATCH --job-name=self_attention_gpu
+
+echo "Running GPU benchmark on Orfeo"
+
+# Load CUDA module
+module load cuda
+
+# Minimal Python venv + pip install packages without strict versions
+VENV_DIR="${VENV_DIR:-.gpu_venv}"
+PY_BIN="${PY_BIN:-$(command -v python3 || command -v python)}"
+if [ -z "$PY_BIN" ]; then
+  echo "Python not found. Load a Python module." >&2
+  exit 1
+fi
+
+# Create venv if it doesn't exist
+[ -d "$VENV_DIR" ] || "$PY_BIN" -m virtualenv "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+
+# Upgrade pip
+pip install --upgrade pip -q
+
+# Install GPU-compatible packages without strict versions
+pip install torch torchvision torchaudio numpy pandas matplotlib --index-url https://download.pytorch.org/whl/cu121 -q
+
+# # Create results directory
+# RESULTS_DIR="results"
+# mkdir -p "$RESULTS_DIR"
+
+echo "=== Starting GPU benchmark ==="
+echo "Benchmarking GPU kernel..."
+
+# Run benchmark for GPU backend
+make benchmark BENCH_BACKEND=cuda USE_SRUN=1 \
+  BENCH_BATCH=2 BENCH_HEADS=4 BENCH_SEQLEN=256 BENCH_HEADDIM=128 \
+  BENCH_SEED=1337 BENCH_WARMUP=5 BENCH_ITERS=25
+
+# BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_gpu.csv"
+# echo ""
+# echo "=== GPU benchmark complete ==="
+# echo "Results: $RESULTS_DIR/benchmark_gpu.csv"
