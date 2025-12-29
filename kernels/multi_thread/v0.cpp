@@ -23,7 +23,7 @@
 //
 // Memory layout:
 // - All tensors: [batch, n_heads, seq_len, head_dim] (row-major)
-// - head_dim_stride is padded to VEC_PADDING (16 floats) for vectorization
+// - head_dim_pad is padded to VEC_PADDING (16 floats) for vectorization
 // - Workspace: threads * seq_len_padded floats (one row per thread)
 //
 // ============================================================================
@@ -49,7 +49,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const float scale = 1.0f / sqrtf((float)head_dim);
-  const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
+  const size_t head_dim_pad = round_up_pow2(head_dim, VEC_PADDING);
   const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
 
 // Parallelize over batch × heads (collapse gives more work units)
@@ -63,10 +63,10 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         float *aw = attn_base + thread_id * seq_len_padded;
 
         // Base offset for current batch and head: [b, h, :, :]
-        size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
-                           h * (seq_len * head_dim_stride);
+        size_t bh_offset = b * (num_heads * seq_len * head_dim_pad) +
+                           h * (seq_len * head_dim_pad);
 
-        size_t query_offset = bh_offset + query_pos * head_dim_stride;
+        size_t query_offset = bh_offset + query_pos * head_dim_pad;
 
         // Track max score while computing dot products (fused pass)
         float max_score = -FLT_MAX;
@@ -75,7 +75,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Only compute for key_pos <= query_pos (causal mask)
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float dot_product = 0.0f;
-          size_t key_offset = bh_offset + key_pos * head_dim_stride;
+          size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
           // Dot product: Q[query_pos] . K[key_pos]
           for (size_t d = 0; d < head_dim; d++) {
@@ -97,7 +97,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // Step 3: Weighted sum of values
         // Normalize inline using multiplication by inverse
-        size_t output_offset = bh_offset + query_pos * head_dim_stride;
+        size_t output_offset = bh_offset + query_pos * head_dim_pad;
         const float inv_sum_exp = 1.0f / sum_exp;
 
         // Initialize output for this query position
@@ -107,7 +107,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // Accumulate: out[query_pos] = sum(softmax[key_pos] * V[key_pos])
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          size_t value_offset = bh_offset + key_pos * head_dim_stride;
+          size_t value_offset = bh_offset + key_pos * head_dim_pad;
           float normalized_weight = aw[key_pos] * inv_sum_exp;
 
           for (size_t d = 0; d < head_dim; d++) {

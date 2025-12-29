@@ -41,16 +41,16 @@ inline void write_meta(const char *path, const RunConfig *cfg) {
   fclose(f);
 }
 
-// Pack a logical [B,H,S,D] tensor from a padded-stride buffer into a
+// Pack a logical [B,H,S,D] tensor from a padded buffer into a
 // contiguous temporary buffer, then write it to disk. The source layout is
-// row-major with row stride = head_dim_stride.
+// row-major with row stride = head_dim_pad (padded to VEC_PADDING).
 inline void write_packed_qkv(const char *path, const float *src,
                              const RunConfig *cfg) {
   const size_t B = cfg->batch;
   const size_t H = cfg->n_heads;
   const size_t S = cfg->seq_len;
   const size_t D = cfg->head_dim;
-  const size_t Dstride = round_up_pow2(D, VEC_PADDING);
+  const size_t D_pad = round_up_pow2(D, VEC_PADDING);
 
   const size_t logical_elems = B * H * S * D;
   float *tmp = (float *)malloc(sizeof(float) * logical_elems);
@@ -62,9 +62,9 @@ inline void write_packed_qkv(const char *path, const float *src,
   size_t dst_idx = 0;
   for (size_t b = 0; b < B; ++b) {
     for (size_t h = 0; h < H; ++h) {
-      const size_t bh_base = b * (H * S * Dstride) + h * (S * Dstride);
+      const size_t bh_base = b * (H * S * D_pad) + h * (S * D_pad);
       for (size_t s = 0; s < S; ++s) {
-        const size_t row_off = bh_base + s * Dstride;
+        const size_t row_off = bh_base + s * D_pad;
         memcpy(&tmp[dst_idx], &src[row_off], sizeof(float) * D);
         dst_idx += D;
       }

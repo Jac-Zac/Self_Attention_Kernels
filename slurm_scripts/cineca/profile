@@ -32,7 +32,7 @@ module load intel-oneapi-vtune/2024.1.0
 export OMP_NUM_THREADS=${THREADS}
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
-export OMP_DISPLAY_AFFINITY=TRUE
+# export OMP_DISPLAY_AFFINITY=TRUE
 
 # =======================================================
 # Setup

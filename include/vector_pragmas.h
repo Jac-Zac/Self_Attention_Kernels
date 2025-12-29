@@ -5,6 +5,26 @@
 #define VEC_PADDING 16
 #endif
 
+// ============================================================================
+// Alignment Invariant
+// ============================================================================
+//
+// Memory layout: tensors are [batch, n_heads, seq_len, head_dim_pad] where
+// head_dim_pad = round_up_pow2(head_dim, VEC_PADDING).
+//
+// Row alignment guarantee:
+//   - Base pointers are 64-byte aligned (via posix_memalign with ALIGNMENT=64)
+//   - Row stride = head_dim_pad * sizeof(float) bytes
+//   - Since VEC_PADDING=16 and sizeof(float)=4: min stride = 16*4 = 64 bytes
+//   - Therefore: every row start is 64-byte aligned
+//
+// This enables ASSUME_ALIGNED(row_ptr, 64) on any row pointer derived as:
+//   row_ptr = base + (b*H*S + h*S + s) * head_dim_pad
+//
+// CRITICAL: If VEC_PADDING is reduced below 16, this invariant breaks and
+// ASSUME_ALIGNED hints on row pointers become undefined behavior.
+// ============================================================================
+
 // the two following macros are useful only to
 // produce pragma strings in the source files
 //

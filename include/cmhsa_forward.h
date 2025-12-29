@@ -3,9 +3,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Logical-to-physical stride helpers
-// These functions compute the padded stride for vectorization-friendly memory access
-static inline size_t stride_head_dim(size_t head_dim) {
+// Logical-to-padded dimension helpers
+// These functions compute padded dimensions
+static inline size_t pad_head_dim(size_t head_dim) {
   return round_up_pow2(head_dim, VEC_PADDING);
 }
 static inline size_t pad_seq_len(size_t seq_len) {
@@ -61,8 +61,9 @@ typedef struct {
 //                     or 1*pad_seq_len(seq_len) (single-thread)
 //   dims           - Dimension specification
 //
-// Note: Internal row strides use stride_head_dim(head_dim). Logical math loops
-//       still iterate over head_dim and seq_len.
+// Note: Internal row strides use pad_head_dim(head_dim). Logical math loops
+//       still iterate over head_dim and seq_len (or head_dim_pad for full
+//       SIMD).
 // ============================================================================
 void cmhsa_forward_cpu(
     const float *RESTRICT Q,      // [batch, n_heads, seq_len, head_dim]

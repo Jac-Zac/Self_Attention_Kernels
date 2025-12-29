@@ -24,7 +24,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const float scale = 1.0f / sqrtf((float)head_dim);
-  const size_t head_dim_stride = round_up_pow2(head_dim, VEC_PADDING);
+  const size_t head_dim_pad = round_up_pow2(head_dim, VEC_PADDING);
 
   // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {
@@ -33,19 +33,19 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
       float *aw = (float *)ASSUME_ALIGNED(attn_weights, ALIGNMENT);
 
       // Base offset for current batch and head: [b, h, :, :]
-      size_t bh_offset = b * (num_heads * seq_len * head_dim_stride) +
-                         h * (seq_len * head_dim_stride);
+      size_t bh_offset = b * (num_heads * seq_len * head_dim_pad) +
+                         h * (seq_len * head_dim_pad);
 
       // Process each query position
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
-        size_t query_offset = bh_offset + query_pos * head_dim_stride;
+        size_t query_offset = bh_offset + query_pos * head_dim_pad;
 
         // Track max score while computing dot products
         float max_score = -FLT_MAX;
 
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float dot_product = 0.0f;
-          size_t key_offset = bh_offset + key_pos * head_dim_stride;
+          size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
 #pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
@@ -66,7 +66,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         // Weighted sum
-        size_t output_offset = bh_offset + query_pos * head_dim_stride;
+        size_t output_offset = bh_offset + query_pos * head_dim_pad;
         const float inv_sum_exp = 1.0f / sum_exp;
 
         for (size_t d = 0; d < head_dim; d++) {
@@ -74,7 +74,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          size_t value_offset = bh_offset + key_pos * head_dim_stride;
+          size_t value_offset = bh_offset + key_pos * head_dim_pad;
           float normalized_weight = aw[key_pos] * inv_sum_exp;
 
           for (size_t d = 0; d < head_dim; d++) {
