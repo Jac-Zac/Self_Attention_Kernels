@@ -4,30 +4,11 @@
 #include <omp.h>
 #include <stdlib.h>
 
-// ============================================================================
-// Multi-threaded Causal Multi-Head Self-Attention - v2
-// ============================================================================
-//
-// Changes from v1:
-//   - Removed software prefetching (Zen 4 HW prefetcher handles this)
-//   - Removed fused first-iteration logic (branching overhead > benefit)
-//   - Kept: SIMD pragmas, alignment hints, padded exp loop
-//
+// NOTE:
 // Changes from v0:
 //   - Added #pragma omp simd on all inner loops
 //   - Added alignment hints for compiler optimization
 //   - Padded exp loop to SIMD boundary (avoid scalar expf)
-//
-// Parallelization strategy:
-// - Uses OpenMP collapse(3) to parallelize over batch × heads × query_pos
-// - Each thread gets its own scratch space for attention weights
-//
-// Memory layout:
-// - All tensors: [batch, n_heads, seq_len, head_dim] (row-major)
-// - head_dim_stride is padded to VEC_PADDING (16 floats) for vectorization
-// - Workspace: threads * seq_len_padded floats (one row per thread)
-//
-// ============================================================================
 
 /**
  * Causal Multi-Head Self-Attention forward pass (multi-threaded CPU)
@@ -94,7 +75,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
           // Vectorized dot product: Q[query_pos] . K[key_pos]
           float dot_product = 0.0f;
-#pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += q_row[d] * k_row[d];
           }
@@ -122,14 +102,12 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         // Vectorized exp over full SIMD-aligned range (no scalar cleanup)
-#pragma omp simd
         for (size_t k = 0; k < exp_count; k++) {
           aw[k] = expf(aw[k] - max_score);
         }
 
         // Sum only the valid entries
         float sum_exp = 0.0f;
-#pragma omp simd reduction(+ : sum_exp)
         for (size_t k = 0; k < valid_count; k++) {
           sum_exp += aw[k];
         }
@@ -144,7 +122,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         out_row = (float *)ASSUME_ALIGNED(out_row, ALIGNMENT);
 
         // Initialize output to zero
-#pragma omp simd
         for (size_t d = 0; d < head_dim; d++) {
           out_row[d] = 0.0f;
         }
@@ -157,7 +134,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
           const float normalized_weight = aw[key_pos] * inv_sum_exp;
 
-#pragma omp simd
           for (size_t d = 0; d < head_dim; d++) {
             out_row[d] += normalized_weight * v_row[d];
           }

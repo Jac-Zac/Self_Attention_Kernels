@@ -4,28 +4,6 @@
 #include <omp.h>
 #include <stdlib.h>
 
-// ============================================================================
-// Multi-threaded Causal Multi-Head Self-Attention - v1
-// ============================================================================
-//
-// Optimizations over v0:
-//   1. Fused output initialization with first V accumulation (one fewer pass)
-//   2. Padded exp loop to avoid scalar expf calls (full SIMD vectorization)
-//   3. Software prefetching for V rows (hide memory latency)
-//   4. Alignment hints throughout for better codegen
-//   5. #pragma omp simd on all inner loops
-//
-// Parallelization strategy:
-// - Uses OpenMP collapse(3) to parallelize over batch × heads × query_pos
-// - Each thread gets its own scratch space for attention weights
-//
-// Memory layout:
-// - All tensors: [batch, n_heads, seq_len, head_dim] (row-major)
-// - head_dim_stride is padded to VEC_PADDING (16 floats) for vectorization
-// - Workspace: threads * seq_len_padded floats (one row per thread)
-//
-// ============================================================================
-
 /**
  * Causal Multi-Head Self-Attention forward pass (multi-threaded CPU)
  *
@@ -91,7 +69,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
           // Vectorized dot product: Q[query_pos] . K[key_pos]
           float dot_product = 0.0f;
-#pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += q_row[d] * k_row[d];
           }
@@ -102,39 +79,17 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         // =====================================================================
-        // Step 2: Numerically stable softmax with padded vectorization
-        // Pad to SIMD boundary with -FLT_MAX so exp() gives 0
+        // Step 2: Numerically stable softmax (plain expf, no SIMD padding)
         // =====================================================================
-
-        // Round up to next multiple of 16 for full AVX-512 vectorization
-        const size_t valid_count = query_pos + 1;
-        size_t exp_count = (valid_count + 15) & ~(size_t)15;
-        if (exp_count > seq_len_padded) {
-          exp_count = seq_len_padded;
-        }
-
-        // Pad remaining slots with -FLT_MAX (exp(-inf) = 0, won't affect sum)
-        for (size_t k = valid_count; k < exp_count; k++) {
-          aw[k] = -FLT_MAX;
-        }
-
-        // Vectorized exp over full SIMD-aligned range (no scalar cleanup)
-#pragma omp simd
-        for (size_t k = 0; k < exp_count; k++) {
-          aw[k] = expf(aw[k] - max_score);
-        }
-
-        // Sum only the valid entries
         float sum_exp = 0.0f;
-#pragma omp simd reduction(+ : sum_exp)
-        for (size_t k = 0; k < valid_count; k++) {
-          sum_exp += aw[k];
+        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+          float exp_val = expf(aw[key_pos] - max_score);
+          aw[key_pos] = exp_val;
+          sum_exp += exp_val;
         }
 
         // =====================================================================
-        // Step 3: Weighted sum of values with fused initialization
-        // First key: direct assignment (avoids zero-init + accumulate)
-        // Remaining keys: accumulate with prefetching
+        // Step 3: Weighted sum of values
         // =====================================================================
         const size_t output_offset = bh_offset + query_pos * head_dim_stride;
         const float inv_sum_exp = 1.0f / sum_exp;
@@ -142,33 +97,19 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         float *RESTRICT out_row = out_aligned + output_offset;
         out_row = (float *)ASSUME_ALIGNED(out_row, ALIGNMENT);
 
-        // First key (key_pos=0): initialize output directly
-        {
-          const float *RESTRICT v_row = V_aligned + bh_offset;
-          v_row = (const float *)ASSUME_ALIGNED(v_row, ALIGNMENT);
-          const float w0 = aw[0] * inv_sum_exp;
-
-#pragma omp simd
-          for (size_t d = 0; d < head_dim; d++) {
-            out_row[d] = w0 * v_row[d];
-          }
+        // Initialize output to zero
+        for (size_t d = 0; d < head_dim; d++) {
+          out_row[d] = 0.0f;
         }
 
-        // Remaining keys: accumulate with software prefetching
-        for (size_t key_pos = 1; key_pos <= query_pos; key_pos++) {
+        // Accumulate weighted values
+        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           const size_t value_offset = bh_offset + key_pos * head_dim_stride;
           const float *RESTRICT v_row = V_aligned + value_offset;
           v_row = (const float *)ASSUME_ALIGNED(v_row, ALIGNMENT);
 
-          // Prefetch V row 2 iterations ahead (hide memory latency)
-          if (key_pos + 2 <= query_pos) {
-            __builtin_prefetch(
-                &V_aligned[bh_offset + (key_pos + 2) * head_dim_stride], 0, 1);
-          }
-
           const float normalized_weight = aw[key_pos] * inv_sum_exp;
 
-#pragma omp simd
           for (size_t d = 0; d < head_dim; d++) {
             out_row[d] += normalized_weight * v_row[d];
           }
