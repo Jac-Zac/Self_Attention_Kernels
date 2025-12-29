@@ -71,6 +71,11 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         size_t output_offset = bh_offset + query_pos * head_dim_stride;
         const float inv_sum_exp = 1.0f / sum_exp;
 
+        // Initialize output
+        for (size_t d = 0; d < head_dim; d++) {
+          out[output_offset + d] = 0.0f;
+        }
+
         // Accumulate with normalized weights
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           size_t value_offset = bh_offset + key_pos * head_dim_stride;

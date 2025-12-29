@@ -78,9 +78,9 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         size_t output_offset = bh_offset + query_pos * head_dim_stride;
 
         // Initialize output
-        // for (size_t d = 0; d < head_dim; d++) {
-        //   out[output_offset + d] = 0.0f;
-        // }
+        for (size_t d = 0; d < head_dim; d++) {
+          out[output_offset + d] = 0.0f;
+        }
 
         // Accumulate: now d is inner loop
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
