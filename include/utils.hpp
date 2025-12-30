@@ -68,6 +68,22 @@ inline void free_outputs(struct Outputs *outputs) {
   (ptr = (float *)ASSUME_ALIGNED((ptr), ALIGNMENT))
 
 // ============================================================================
+// CUDA Error Handling
+// ============================================================================
+
+#ifdef USE_CUDA
+#define CUDA_CHECK(call)                                                       \
+  do {                                                                         \
+    cudaError_t err = call;                                                    \
+    if (err != cudaSuccess) {                                                  \
+      fprintf(stderr, "CUDA error %s:%d: %s\n", __FILE__, __LINE__,            \
+              cudaGetErrorString(err));                                        \
+      return 1;                                                                \
+    }                                                                          \
+  } while (0)
+#endif
+
+// ============================================================================
 // Thread count resolution
 // ============================================================================
 

@@ -1,6 +1,7 @@
 #include <cfloat>
 #ifdef USE_CUDA
 #include "../../include/cmhsa_forward.h"
+#include "../../include/utils.hpp"
 #include <cuda_runtime.h>
 #include <math.h>
 
@@ -95,18 +96,16 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   const size_t head_dim_padded = round_up_pow2(dims.head_dim, VEC_PADDING);
   const size_t seq_len_padded = round_up_pow2(dims.seq_len, VEC_PADDING);
 
-  // Set up workspace
+  // Set up workspace using managed memory
   float *workspace;
 
-  cudaMalloc(&workspace, num_threads * seq_len_padded);
+  CUDA_CHECK(cudaMallocManaged(&workspace,
+                               num_threads * seq_len_padded * sizeof(float)));
 
   // WARNING: Not implemented yet - just launch empty kernel
   cmhsa_forward_kernel<<<1, num_threads>>>(Q, K, V, out, workspace, dims);
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("CUDA kernel launch error: %s\n", cudaGetErrorString(err));
-  }
-  cudaDeviceSynchronize();
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaDeviceSynchronize());
 }
 #else
 #error "This file requires USE_CUDA to be defined"

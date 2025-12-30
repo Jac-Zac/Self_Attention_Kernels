@@ -13,16 +13,6 @@
 #define VERSION_STR "v0"
 #endif
 
-#define CUDA_CHECK(call)                                                       \
-  do {                                                                         \
-    cudaError_t err = call;                                                    \
-    if (err != cudaSuccess) {                                                  \
-      fprintf(stderr, "CUDA error %s:%d: %s\n", __FILE__, __LINE__,            \
-              cudaGetErrorString(err));                                        \
-      return 1;                                                                \
-    }                                                                          \
-  } while (0)
-
 int main(int argc, char *argv[]) {
   RunConfig cfg;
   if (parse_args(argc, argv, &cfg) != 0) {
