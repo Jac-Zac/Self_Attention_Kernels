@@ -33,7 +33,8 @@ CXX_WARN := $(if $(filter clang++,$(CXX)),$(WARN_CLANG),$(WARN_GCC))
 # Combined flags
 CXXFLAGS  := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
 CUDA_ARCH ?= sm_70
-NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -arch=$(CUDA_ARCH) -DUSE_CUDA 
+# CUDA_ARCH ?= sm_86
+NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -arch=$(CUDA_ARCH) -DUSE_CUDA
 
 # Discovered kernel versions
 SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
@@ -111,12 +112,28 @@ benchmark:
 	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)))
 	@$(MAKE) clean
 
+# GPU detection (can be overridden with: make test HAS_GPU=false)
+HAS_GPU ?= $(shell nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null | head -1 | grep -q . && echo true || echo false)
+
 # =============================================================================
 # Test
 # =============================================================================
 
+check-gpu:
+	@if [ "$(HAS_GPU)" = "true" ]; then \
+		echo "✓ GPU detected: $$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -1)"; \
+	else \
+		echo "✗ No GPU detected - CUDA tests will be skipped"; \
+	fi
+
 test:
 	@set -e; \
+	echo "[check-gpu] Checking GPU availability..."; \
+	if [ "$(HAS_GPU)" = "true" ]; then \
+		echo "✓ GPU detected: $$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits | head -1)"; \
+	else \
+		echo "✗ No GPU detected - CUDA tests will be skipped"; \
+	fi; \
 	for backend in single multi; do \
 	  case $$backend in \
 	    single) versions="$(SINGLE_VERSIONS)" ;; \
@@ -130,7 +147,20 @@ test:
 	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337 \
 	      $(if $(filter 1,$(USE_SRUN)),--use-srun); \
 	  done; \
-	done
+	done; \
+	echo ""; \
+	if [ "$(HAS_GPU)" = "true" ]; then \
+		for ver in $(CUDA_VERSIONS); do \
+			echo "[test] cuda $$ver"; \
+			$(NVCC) $(NVCC_FLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$$ver\" \
+				-o $(EXEC) main.cu kernels/cuda/$$ver.cu; \
+			python3 python_src/tests/validate_with_torch.py --bin ./$(EXEC) \
+				--batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337 \
+				$(if $(filter 1,$(USE_SRUN)),--use-srun); \
+		done; \
+	else \
+		echo "[skip] cuda tests - no GPU detected"; \
+	fi
 
 # =============================================================================
 # Utilities
@@ -148,7 +178,7 @@ help:
 	@echo "  single     Build single-thread backend (VERSION?=v0)"
 	@echo "  multi      Build multi-core backend (OpenMP)"
 	@echo "  cuda       Build CUDA backend"
-	@echo "  test       Validate all kernel versions against PyTorch"
+	@echo "  test       Validate all kernel versions against PyTorch (skips CUDA if no GPU)"
 	@echo "  benchmark  Benchmark all kernel versions"
 	@echo "  clean      Remove build artifacts"
 	@echo ""
@@ -172,4 +202,4 @@ help:
 	@echo "  BENCH_ITERS        Benchmark iterations (default: 20)"
 	@echo "  BENCH_OUTPUT_FILE  Save results to CSV"
 
-.PHONY: all single multi cuda test benchmark clean help
+.PHONY: all single multi cuda check-gpu test benchmark clean help
