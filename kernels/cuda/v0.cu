@@ -12,32 +12,33 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t batch_size = dims.batch;
   const size_t num_heads = dims.n_heads;
   const size_t seq_len = dims.seq_len;
-  const size_t head_dim = dims.head_dim;
-  const float scale = 1.0f / sqrtf((float)head_dim);
+   const size_t head_dim = dims.head_dim;
+   const size_t head_dim_pad = dims.head_dim_padded;
+   const float scale = 1.0f / sqrtf((float)head_dim);
 
-  // Process each batch and head independently
-  for (size_t b = 0; b < batch_size; b++) {
-    for (size_t h = 0; h < num_heads; h++) {
+   // Process each batch and head independently
+   for (size_t b = 0; b < batch_size; b++) {
+     for (size_t h = 0; h < num_heads; h++) {
+ 
+       float *aw = attn_weights;
 
-      float *aw = attn_weights;
+       // Base offset for current batch and head: [b, h, :, :]
+       size_t bh_offset =
+           b * (num_heads * seq_len * head_dim_pad) + h * (seq_len * head_dim_pad);
 
-      // Base offset for current batch and head: [b, h, :, :]
-      size_t bh_offset =
-          b * (num_heads * seq_len * head_dim) + h * (seq_len * head_dim);
-
-      // Process each query position
-      for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
-        size_t query_offset = bh_offset + query_pos * head_dim;
+       // Process each query position
+       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
+         size_t query_offset = bh_offset + query_pos * head_dim_pad;
 
         // NOTE: No need to compute it for key_pos > query_pos
         // Step 1: Compute scaled dot-product attention scores
         // QK^T for all valid (non-causal-masked) key positions
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          float dot_product = 0.0f;
-          size_t key_offset = bh_offset + key_pos * head_dim;
+for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+           float dot_product = 0.0f;
+           size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
-          // Dot product across head dimension
-          for (size_t d = 0; d < head_dim; d++) {
+           // Dot product across head dimension
+           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
 
@@ -64,20 +65,20 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
           aw[key_pos] /= sum_exp;
         }
 
-        // Step 3: Weighted sum of values
-        size_t output_offset = bh_offset + query_pos * head_dim;
+// Step 3: Weighted sum of values
+         size_t output_offset = bh_offset + query_pos * head_dim_pad;
 
-        // Initialize output
-        for (size_t d = 0; d < head_dim; d++) {
-          out[output_offset + d] = 0.0f;
-        }
+         // Initialize output
+         for (size_t d = 0; d < head_dim; d++) {
+           out[output_offset + d] = 0.0f;
+         }
 
-        // Accumulate: now d is inner loop
-        for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
-          size_t value_offset = bh_offset + key_pos * head_dim;
-          float attn_weight = aw[key_pos];
+         // Accumulate: now d is inner loop
+         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+           size_t value_offset = bh_offset + key_pos * head_dim_pad;
+           float attn_weight = aw[key_pos];
 
-          for (size_t d = 0; d < head_dim; d++) {
+           for (size_t d = 0; d < head_dim; d++) {
             out[output_offset + d] += attn_weight * V[value_offset + d];
           }
         }

@@ -25,10 +25,12 @@ int main(int argc, char *argv[]) {
          cfg.batch, cfg.n_heads, cfg.seq_len, cfg.head_dim, threads);
 
   // Setup dimensions and compute padded sizes
-  AttentionDims dims = {cfg.batch, cfg.n_heads, cfg.seq_len, cfg.head_dim};
-  const size_t head_dim_padded = round_up_pow2(cfg.head_dim, VEC_PADDING);
-  const size_t seq_len_padded = round_up_pow2(cfg.seq_len, VEC_PADDING);
-  const size_t qkv_size = cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
+  AttentionDims dims =
+      make_attention_dims(cfg.batch, cfg.n_heads, cfg.seq_len, cfg.head_dim);
+  const size_t head_dim_padded = dims.head_dim_padded;
+  const size_t seq_len_padded = dims.seq_len_padded;
+  const size_t qkv_size =
+      cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
   // Allocate tensors
   struct Tensors t;

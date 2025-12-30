@@ -49,8 +49,8 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const float scale = 1.0f / sqrtf((float)head_dim);
-  const size_t head_dim_pad = round_up_pow2(head_dim, VEC_PADDING);
-  const size_t seq_len_padded = round_up_pow2(seq_len, VEC_PADDING);
+  const size_t head_dim_pad = dims.head_dim_padded;
+  const size_t seq_len_padded = dims.seq_len_padded;
 
 // Parallelize over batch × heads (collapse gives more work units)
 #pragma omp parallel for collapse(3)

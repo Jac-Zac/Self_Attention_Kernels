@@ -35,7 +35,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const float scale = 1.0f / sqrtf((float)head_dim);
-  const size_t head_dim_pad = round_up_pow2(head_dim, VEC_PADDING);
+  const size_t head_dim_pad = dims.head_dim_padded;
 
   // Process each batch and head independently
   for (size_t b = 0; b < batch_size; b++) {

@@ -12,6 +12,29 @@ static inline size_t pad_seq_len(size_t seq_len) {
   return round_up_pow2(seq_len, VEC_PADDING);
 }
 
+typedef struct {
+  size_t batch;           // B: batch size
+  size_t n_heads;         // H: number of attention heads
+  size_t seq_len;         // T: sequence length (logical, unpadded)
+  size_t head_dim;        // C: dimension per head (logical, unpadded)
+  size_t seq_len_padded;  // Padded sequence length (for alignment/SIMD)
+  size_t head_dim_padded; // Padded head dimension (for alignment/SIMD)
+} AttentionDims;
+
+// Helper to construct an AttentionDims instance with padding calculated
+static inline AttentionDims make_attention_dims(size_t batch, size_t n_heads,
+                                                size_t seq_len,
+                                                size_t head_dim) {
+  AttentionDims dims;
+  dims.batch = batch;
+  dims.n_heads = n_heads;
+  dims.seq_len = seq_len;
+  dims.head_dim = head_dim;
+  dims.seq_len_padded = pad_seq_len(seq_len);
+  dims.head_dim_padded = pad_head_dim(head_dim);
+  return dims;
+}
+
 // ============================================================================
 // Multi-Head Self-Attention Forward Pass
 // ============================================================================
@@ -31,13 +54,6 @@ static inline size_t pad_seq_len(size_t seq_len) {
 //
 // Memory layout: All tensors are row-major, contiguous in memory.
 // ============================================================================
-
-typedef struct {
-  size_t batch;    // B: batch size
-  size_t n_heads;  // H: number of attention heads
-  size_t seq_len;  // T: sequence length
-  size_t head_dim; // C: dimension per head
-} AttentionDims;
 
 // ============================================================================
 // CPU Implementation of Multi-Head Self-Attention
