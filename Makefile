@@ -32,8 +32,8 @@ CXX_WARN := $(if $(filter clang++,$(CXX)),$(WARN_CLANG),$(WARN_GCC))
 
 # Combined flags
 CXXFLAGS  := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
-CUDA_ARCH ?= sm_70
-# CUDA_ARCH ?= sm_86
+# CUDA_ARCH ?= sm_70
+CUDA_ARCH ?= sm_86
 NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -arch=$(CUDA_ARCH) -DUSE_CUDA
 
 # Discovered kernel versions
@@ -69,10 +69,10 @@ BENCH_THREADS ?= 1
 BENCH_OUTPUT_FILE ?=
 
 # Benchmark parameters (overridable)
-BENCH_BATCH ?= 2
-BENCH_HEADS ?= 4
-BENCH_SEQLEN ?= 2048
-BENCH_HEADDIM ?= 128
+BENCH_BATCH ?= 8
+BENCH_HEADS ?= 8
+BENCH_SEQLEN ?= 128
+BENCH_HEADDIM ?= 64
 BENCH_SEED ?= 1337
 BENCH_WARMUP ?= 5
 BENCH_ITERS ?= 20

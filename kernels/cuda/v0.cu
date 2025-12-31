@@ -95,12 +95,9 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   const size_t head_dim_padded = round_up_pow2(dims.head_dim, VEC_PADDING);
   const size_t seq_len_padded = round_up_pow2(dims.seq_len, VEC_PADDING);
 
-  // Set up workspace using managed memory
+  // Set up just one workspace using managed memory
   float *workspace;
-
   cudaMallocManaged(&workspace, 1 * seq_len_padded * sizeof(float));
-
-  // WARNING: Not implemented yet - just launch empty kernel
   cmhsa_forward_kernel<<<1, 1>>>(Q, K, V, out, workspace, dims);
   cudaGetLastError();
   cudaDeviceSynchronize();
