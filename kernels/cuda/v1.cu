@@ -9,9 +9,12 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      const float *RESTRICT V, float *RESTRICT out,
                      float *RESTRICT attn_weights, const AttentionDims dims) {
 
-  // 2D parallelization: each thread handles one (batch, head) combination
+  // 3D parallelization: each thread handles one (batch, head) combination
   int b = blockIdx.x * blockDim.x + threadIdx.x;
   int h = blockIdx.y * blockDim.y + threadIdx.y;
+
+  // // And some sequential querries
+  int q = blockIdx.z * blockDim.z + threadIdx.z;
 
   const size_t batch_size = dims.batch;
   const size_t num_heads = dims.n_heads;
@@ -24,9 +27,18 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // Only proceed if this thread has valid work
   if (b < batch_size && h < num_heads) {
     // Each thread gets its own workspace for attention weights
-    // Use a simple 1D thread ID for workspace indexing
-    int thread_id = threadIdx.x + blockDim.x * threadIdx.y;
-    float *RESTRICT aw = attn_weights + thread_id * seq_len_padded;
+    // Use GLOBAL thread ID (blockIdx + threadIdx) for workspace indexing
+    int block_id = blockIdx.z * (gridDim.x * gridDim.y) +
+                   blockIdx.y * gridDim.x + blockIdx.x;
+
+    int threads_per_block = blockDim.x * blockDim.y * blockDim.z;
+
+    int thread_id_in_block = threadIdx.z * (blockDim.x * blockDim.y) +
+                             threadIdx.y * blockDim.x + threadIdx.x;
+
+    int global_thread_id = block_id * threads_per_block + thread_id_in_block;
+
+    float *RESTRICT aw = attn_weights + global_thread_id * seq_len_padded;
 
     // Base offset for current batch and head: [b, h, :, :]
     size_t bh_offset =
@@ -34,7 +46,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
     // Sequential processing of all query positions within this thread
     // Process each query position sequentially within this thread
-    for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
+    for (size_t query_pos = q; query_pos < seq_len; query_pos += blockDim.z) {
       size_t query_offset = bh_offset + query_pos * head_dim_pad;
 
       // Step 1: Compute scaled dot-product attention scores
@@ -105,23 +117,37 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   float *workspace;
 
   // 2D thread configuration: parallelize over (batch, head) only
-  dim3 threads_per_block(16, 16); // 16x16 = 256 threads per block
+  //// 1x1x32 NOTE: warps perheaps think about it
+  dim3 threads_per_block(1, 1, 32);
 
   size_t blocks_x =
       (dims.batch + threads_per_block.x - 1) / threads_per_block.x;
   size_t blocks_y =
       (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
+  size_t blocks_z = 1;
 
-  dim3 number_of_blocks(blocks_x, blocks_y);
+  dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
+
+  // Debug: Print thread configuration
+  VERBOSE_PRINT("CUDA Debug: Thread block (%d,%d,%d), Grid (%zu,%zu,%zu)\n",
+                threads_per_block.x, threads_per_block.y, threads_per_block.z,
+                blocks_x, blocks_y, blocks_z);
 
   // Allocate workspace: one attention weight array per thread
-  cudaMallocManaged(&workspace, threads_per_block.x * threads_per_block.y *
-                                    seq_len_padded * sizeof(float));
+  size_t total_threads =
+      (blocks_x * blocks_y * blocks_z) *
+      (threads_per_block.x * threads_per_block.y * threads_per_block.z);
+
+  // Safety check to prevent excessive memory allocation
+  size_t workspace_size = total_threads * seq_len_padded * sizeof(float);
+
+  cudaMallocManaged(&workspace, workspace_size);
 
   cmhsa_forward_kernel<<<number_of_blocks, threads_per_block>>>(
       Q, K, V, out, workspace, dims);
 
   cudaDeviceSynchronize();
+  cudaFree(workspace);
 }
 #else
 #error "This file requires USE_CUDA to be defined"

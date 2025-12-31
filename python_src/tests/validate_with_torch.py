@@ -25,6 +25,7 @@ def parse_args():
     p.add_argument("--rtol", type=float, default=1e-4)
     p.add_argument("--atol", type=float, default=1e-5)
     p.add_argument("--threads", type=int, default=1)
+    p.add_argument("--iters", type=int, default=1)
     p.add_argument("--use-srun", action="store_true", help="Use srun for SLURM")
     return p.parse_args()
 
@@ -41,6 +42,7 @@ def main():
             args.head_dim,
             args.seed,
             args.threads,
+            args.iters,
             validate_outdir=outdir,
             use_srun=args.use_srun,
         )
