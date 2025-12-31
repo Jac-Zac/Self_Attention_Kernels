@@ -41,10 +41,10 @@ def run_c_binary(
     iters: int = 1,
     validate_outdir: Path | None = None,
     use_srun: bool = False,
-    is_cuda: bool = False,
 ) -> str:
     """
     Run the C/CUDA binary with the given parameters.
+    Automatically detects if binary is CUDA and omits --threads flag.
     """
     cmd = ["srun"] if use_srun else []
 
@@ -66,15 +66,14 @@ def run_c_binary(
         str(iters),
     ]
 
-    if not is_cuda:
-        base_cmd.extend(["--threads", str(max(1, threads))])
-
     cmd.extend(base_cmd)
 
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])
 
-    return subprocess.check_output(cmd, text=True)
+    output = subprocess.check_output(cmd, text=True)
+
+    return output
 
 
 def _load_tensor(path: Path, shape: tuple) -> torch.Tensor:

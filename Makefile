@@ -39,7 +39,7 @@ NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -arch=$(CUDA_ARCH) -DUSE_CUDA
 # Discovered kernel versions
 SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
 MULTI_VERSIONS  := $(basename $(notdir $(wildcard kernels/multi_thread/v*.cpp)))
-CUDA_VERSIONS   := $(filter-out v0,$(basename $(notdir $(wildcard kernels/cuda/v*.cu))))
+CUDA_VERSIONS   := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 
 # Output executable
 EXEC ?= cmhsa.out
@@ -144,7 +144,7 @@ test:
 	    echo "[test] $$backend $$ver"; \
 	    $(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"$$backend\" -DVERSION_STR=\"$$ver\" \
 	      -o $(EXEC) main.cpp kernels/$${backend}_thread/$$ver.cpp; \
-	    python3 python_src/tests/validate_with_torch.py --bin ./$(EXEC) \
+	    uv run python_src/tests/validate_with_torch.py --bin ./$(EXEC) \
 	      --batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337 \
 	      $(if $(filter 1,$(USE_SRUN)),--use-srun); \
 	  done; \
@@ -155,7 +155,7 @@ test:
 			echo "[test] cuda $$ver"; \
 			$(NVCC) $(NVCC_FLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$$ver\" \
 				-o $(EXEC) main.cu kernels/cuda/$$ver.cu; \
-			python3 python_src/tests/validate_with_torch.py --bin ./$(EXEC) \
+			uv run python_src/tests/validate_with_torch.py --bin ./$(EXEC) \
 				--batch 4 --n_heads 8 --seq_len 16 --head_dim 32 --seed 1337 \
 				$(if $(filter 1,$(USE_SRUN)),--use-srun); \
 		done; \

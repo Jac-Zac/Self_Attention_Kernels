@@ -65,6 +65,18 @@ int main(int argc, char *argv[]) {
   init_random_tensors(Q, K, V, out, cfg.batch, cfg.n_heads, cfg.seq_len,
                       head_dim_padded, cfg.seed);
 
+  // Create cuda configuration
+  dim3 threads_per_block(1, 1, 32);
+  CudaConfig cuda_conf = make_cuda_config(dims, threads_per_block);
+
+  // Allocate workspace
+  const size_t seq_len_padded = round_up_pow2(dims.seq_len, VEC_PADDING);
+  size_t workspace_size =
+      cuda_conf.total_threads * seq_len_padded * sizeof(float);
+
+  float *workspace;
+  CUDA_CHECK(cudaMallocManaged(&workspace, workspace_size));
+
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
     VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, Q[d]);
@@ -74,7 +86,7 @@ int main(int argc, char *argv[]) {
 
   // Warm-up runs
   for (int i = 0; i < cfg.warmup; i++) {
-    cmhsa_forward_cuda(Q, K, V, out, dims);
+    cmhsa_forward_cuda(Q, K, V, out, workspace, dims, cuda_conf);
   }
 
   // Timed iterations using CUDA events
@@ -86,7 +98,7 @@ int main(int argc, char *argv[]) {
   float checksum = 0.0f;
   for (int i = 0; i < cfg.iters; i++) {
     CUDA_CHECK(cudaEventRecord(start));
-    cmhsa_forward_cuda(Q, K, V, out, dims);
+    cmhsa_forward_cuda(Q, K, V, out, workspace, dims, cuda_conf);
     CUDA_CHECK(cudaEventRecord(end));
     CUDA_CHECK(cudaEventSynchronize(end));
 
@@ -115,6 +127,7 @@ int main(int argc, char *argv[]) {
   // Cleanup
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(end));
+  cudaFree(workspace);
   cudaFree(Q);
   cudaFree(K);
   cudaFree(V);

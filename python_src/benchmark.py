@@ -148,7 +148,6 @@ def main():
                 args.iters,
                 outdir,
                 args.use_srun,
-                is_cuda,
             )
             first_time = parse_c_time(c_output)
             _, Q, K, V, first_out_c = load_artifacts(outdir)
@@ -209,7 +208,6 @@ def main():
                     args.iters,
                     outdir,
                     args.use_srun,
-                    is_cuda,
                 )
                 c_time = parse_c_time(c_output)
                 _, _, _, _, out_c = load_artifacts(outdir)

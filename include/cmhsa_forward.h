@@ -94,8 +94,37 @@ void cmhsa_forward_cpu(
 // ============================================================================
 // CUDA Implementation of Multi-Head Self-Attention
 // ============================================================================
+
+typedef struct {
+  dim3 threads_per_block;
+  dim3 number_of_blocks;
+  size_t total_threads;
+} CudaConfig;
+
+static inline CudaConfig make_cuda_config(const AttentionDims dims,
+                                          const dim3 threads_per_block) {
+  size_t blocks_x =
+      (dims.batch + threads_per_block.x - 1) / threads_per_block.x;
+  size_t blocks_y =
+      (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
+
+  // NOTE: Tmp we are doing just 1 block for z
+  dim3 number_of_blocks(blocks_x, blocks_y, 1);
+
+  size_t total_threads =
+      (blocks_x * blocks_y) *
+      (threads_per_block.x * threads_per_block.y * threads_per_block.z);
+
+  CudaConfig config;
+  config.threads_per_block = threads_per_block;
+  config.number_of_blocks = number_of_blocks;
+  config.total_threads = total_threads;
+  return config;
+}
+
 void cmhsa_forward_cuda(const float *RESTRICT Q, const float *RESTRICT K,
                         const float *RESTRICT V, float *RESTRICT out,
-                        const AttentionDims dims);
+                        float *RESTRICT workspace, const AttentionDims dims,
+                        const CudaConfig config);
 
 #endif
