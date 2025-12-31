@@ -4,26 +4,27 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-// NOTE: This is cuda code which actually runs sequentially but servers as a
-// working baseline for me to test and compare later improvements
-
 __global__ void
 cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      const float *RESTRICT V, float *RESTRICT out,
                      float *RESTRICT attn_weights, const AttentionDims dims) {
+
+  int b = blockIdx.x * blockDim.x + threadIdx.x;
+  // int h = blockIdx.y * blockDim.y + threadIdx.y;
 
   const size_t batch_size = dims.batch;
   const size_t num_heads = dims.n_heads;
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const size_t head_dim_pad = dims.head_dim_padded;
+  const size_t seq_len_padded = dims.seq_len_padded;
   const float scale = 1.0f / sqrtf((float)head_dim);
 
-  // Process each batch and head independently
-  for (size_t b = 0; b < batch_size; b++) {
+  if (b < batch_size) {
+    // Process each batch and head independently
     for (size_t h = 0; h < num_heads; h++) {
 
-      float *aw = attn_weights;
+      float *RESTRICT aw = attn_weights + b * seq_len_padded;
 
       // Base offset for current batch and head: [b, h, :, :]
       size_t bh_offset = b * (num_heads * seq_len * head_dim_pad) +
@@ -91,6 +92,7 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
                                  const float *RESTRICT K,
                                  const float *RESTRICT V, float *RESTRICT out,
                                  const AttentionDims dims) {
+
   // Load things correctly fot the correct dimensionality
   const size_t head_dim_padded = round_up_pow2(dims.head_dim, VEC_PADDING);
   const size_t seq_len_padded = round_up_pow2(dims.seq_len, VEC_PADDING);
@@ -98,10 +100,25 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   // Set up workspace using managed memory
   float *workspace;
 
-  cudaMallocManaged(&workspace, 1 * seq_len_padded * sizeof(float));
+  // dim x, y, z
+  dim3 threads_per_block(dims.batch, 1, 1);
 
-  // WARNING: Not implemented yet - just launch empty kernel
-  cmhsa_forward_kernel<<<1, 1>>>(Q, K, V, out, workspace, dims);
+  // Get automatically at least enought threads for the entire head dim
+  dim3 number_of_blocks(
+      (dims.head_dim + threads_per_block.x - 1) / threads_per_block.x, 1, 1);
+
+  printf("Number of blocks x %d", number_of_blocks.x);
+  printf("Number of blocks y %d", number_of_blocks.y);
+
+  printf("Number threads per block x %d", threads_per_block.x);
+  printf("Number threads per block y %d", threads_per_block.y);
+
+  cudaMallocManaged(&workspace,
+                    threads_per_block.x * seq_len_padded * sizeof(float));
+
+  cmhsa_forward_kernel<<<number_of_blocks, threads_per_block>>>(
+      Q, K, V, out, workspace, dims);
+
   cudaGetLastError();
   cudaDeviceSynchronize();
 }
