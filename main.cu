@@ -30,11 +30,14 @@ int main(int argc, char *argv[]) {
     cudaDeviceProp prop;
     err = cudaGetDeviceProperties(&prop, 0);
     if (err == cudaSuccess) {
+#ifdef VERBOSE
       printf("GPU Device: %s\n", prop.name);
-      printf("GPU Compute Capability: %d.%d\n", prop.major, prop.minor);
       printf("GPU Memory: %.2f GB\n",
              (float)prop.totalGlobalMem / (1024 * 1024 * 1024));
       printf("GPU SM Count: %d\n", prop.multiProcessorCount);
+      printf("GPU Total Threads: %d\n",
+             prop.multiProcessorCount * prop.maxThreadsPerMultiProcessor);
+#endif
     } else {
       printf("GPU Device: [Failed to get properties: %s]\n",
              cudaGetErrorString(err));
