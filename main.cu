@@ -23,6 +23,27 @@ int main(int argc, char *argv[]) {
   printf("batch=%zu n_heads=%zu seq_len=%zu head_dim=%zu\n", cfg.batch,
          cfg.n_heads, cfg.seq_len, cfg.head_dim);
 
+  // Display GPU device information
+  int device_count = 0;
+  cudaError_t err = cudaGetDeviceCount(&device_count);
+  if (err == cudaSuccess && device_count > 0) {
+    cudaDeviceProp prop;
+    err = cudaGetDeviceProperties(&prop, 0);
+    if (err == cudaSuccess) {
+      printf("GPU Device: %s\n", prop.name);
+      printf("GPU Compute Capability: %d.%d\n", prop.major, prop.minor);
+      printf("GPU Memory: %.2f GB\n",
+             (float)prop.totalGlobalMem / (1024 * 1024 * 1024));
+      printf("GPU SM Count: %d\n", prop.multiProcessorCount);
+    } else {
+      printf("GPU Device: [Failed to get properties: %s]\n",
+             cudaGetErrorString(err));
+    }
+  } else {
+    printf("GPU Device: [No CUDA device available or error: %s]\n",
+           err != cudaSuccess ? cudaGetErrorString(err) : "No devices found");
+  }
+
   // Setup dimensions and compute padded sizes
   AttentionDims dims =
       make_attention_dims(cfg.batch, cfg.n_heads, cfg.seq_len, cfg.head_dim);

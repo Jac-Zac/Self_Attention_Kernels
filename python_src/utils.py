@@ -122,6 +122,41 @@ def load_artifacts(
     return meta, Q, K, V, out_c
 
 
+def parse_gpu_info(output: str) -> dict:
+    """
+    Extract GPU information from CUDA binary output.
+
+    Args:
+        output: Standard output from the C binary
+
+    Returns:
+        dict: GPU information with keys: name, compute_capability, memory_gb, sm_count
+    """
+    gpu_info = {}
+
+    # Extract GPU name
+    m = re.search(r"GPU Device:\s*(.+)", output)
+    if m:
+        gpu_info["name"] = m.group(1).strip()
+
+    # Extract compute capability
+    m = re.search(r"GPU Compute Capability:\s*(\d+)\.(\d+)", output)
+    if m:
+        gpu_info["compute_capability"] = f"{m.group(1)}.{m.group(2)}"
+
+    # Extract memory
+    m = re.search(r"GPU Memory:\s*([0-9.]+)\s*GB", output)
+    if m:
+        gpu_info["memory_gb"] = float(m.group(1))
+
+    # Extract SM count
+    m = re.search(r"GPU SM Count:\s*(\d+)", output)
+    if m:
+        gpu_info["sm_count"] = int(m.group(1))
+
+    return gpu_info
+
+
 def parse_c_time(output: str) -> float:
     """
     Extract per-iteration time in seconds from C binary output.

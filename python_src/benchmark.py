@@ -23,6 +23,7 @@ from utils import (
     RESULTS_DIR,
     load_artifacts,
     parse_c_time,
+    parse_gpu_info,
     run_c_binary,
     tmp_artifacts_dir,
 )
@@ -128,12 +129,11 @@ def main():
     is_cuda = args.backend == "cuda"
     rows = []
 
-    for threads in args.threads:
-        print(f"\n=== Benchmarking with {threads} thread(s) ===")
-        torch.set_num_threads(max(1, threads))
-        torch.set_num_interop_threads(1)
+    # Initialize GPU info for CUDA backends
+    gpu_info = {}
 
-        # Run first binary to get Q/K/V artifacts
+    for threads in args.threads:
+        # Run first binary to get Q/K/V artifacts and extract GPU info if needed
         first_bin = args.bins[0]
         with tmp_artifacts_dir() as outdir:
             c_output = run_c_binary(
@@ -152,6 +152,20 @@ def main():
             )
             first_time = parse_c_time(c_output)
             _, Q, K, V, first_out_c = load_artifacts(outdir)
+
+            # Extract GPU info for CUDA backend (only on first iteration)
+            if is_cuda and not gpu_info:
+                gpu_info = parse_gpu_info(c_output)
+
+        # Print benchmark header with GPU info for CUDA
+        if is_cuda:
+            gpu_name = gpu_info.get("name", "Unknown GPU")
+            print(f"\n=== Benchmarking with {threads} thread(s) [GPU: {gpu_name}] ===")
+        else:
+            print(f"\n=== Benchmarking with {threads} thread(s) ===")
+
+        torch.set_num_threads(max(1, threads))
+        torch.set_num_interop_threads(1)
 
         # Benchmark PyTorch
         _, naive_time = bench_torch(Q, K, V, args.warmup, args.iters, use_sdpa=False)
