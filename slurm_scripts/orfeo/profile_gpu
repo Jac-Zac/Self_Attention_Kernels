@@ -9,7 +9,11 @@
 #SBATCH -t 00:05:00
 #SBATCH --job-name=self_attention_gpu
 
+# Load the cuda module
 module load cuda
+
+# Compile the code
+make cuda VERSION=v0
 
 echo "Running GPU benchmark on Orfeo with UV"
 OMP_PLACES=cores
