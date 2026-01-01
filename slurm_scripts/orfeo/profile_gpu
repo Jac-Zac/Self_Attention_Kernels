@@ -37,15 +37,14 @@ python -c "import torch; print(f'Using Device: {torch.cuda.get_device_name(0)}')
 VERSION="${VERSION:-v0}"
 THREADS="${THREADS:-${SLURM_CPUS_PER_TASK}}"
 BATCH="${BATCH:-4}"
-N_HEADS="${N_HEADS:-8}"
+N_HEADS="${N_HEADS:-16}"
 SEQ_LEN="${SEQ_LEN:-2048}"
 HEAD_DIM="${HEAD_DIM:-128}"
 
 # Setup
 # =======================================================
-EXEC=./cmhsa.out
-# ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads ${THREADS} --warmup 5 --iters 20"
-ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads ${THREADS} --warmup 1 --iters 2"
+EXEC="./cmhsa.out"
+ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads ${THREADS} --warmup 3 --iters 5"
 
 # Define the directory to store reports
 report_dir_nsys="reports/nsys"
@@ -60,10 +59,10 @@ timestamp=$(date +"%Y%m%d_%H%M%S")
 report_file="report_${timestamp}"
 
 # Run the nsys profile command and store the report in the specified directory
-srun nsys profile --trace=cuda --stats=true -o "${report_dir_nsys}/${report_file}" "$EXEC" "$ARGS"
+srun nsys profile --trace=cuda --stats=true -o "${report_dir_nsys}/${report_file}" $EXEC $ARGS
 
 # Notify the user
 echo "Report generated: ${report_dir_nsys}/${report_file}.qdrep"
 
 # Original
-# srun ncu --set full --launch-skip 0 --launch-count 1 --import-source yes -o "${report_dir_ncu}/${report_file}" "$EXEC" "$ARGS"
+# srun ncu --set full --launch-skip 0 --launch-count 1 --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS
