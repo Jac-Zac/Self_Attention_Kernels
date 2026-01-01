@@ -74,7 +74,8 @@ int main(int argc, char *argv[]) {
   // Create cuda configuration
   // HACK: This created silent bugs in my code be very careful !
   // Swapped mapping: x=queries (up to 1024), y=heads, z=batch (up to 64)
-  dim3 threads_per_block(256, 1, 1);
+  // dim3 threads_per_block(256, 1, 1);
+  dim3 threads_per_block(512, 1, 1);
   CudaConfig cuda_conf = make_cuda_config(dims, threads_per_block);
 
   // Allocate workspace
