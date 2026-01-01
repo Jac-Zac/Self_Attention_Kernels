@@ -37,6 +37,12 @@ int main(int argc, char *argv[]) {
       printf("GPU SM Count: %d\n", prop.multiProcessorCount);
       printf("GPU Total Threads: %d\n",
              prop.multiProcessorCount * prop.maxThreadsPerMultiProcessor);
+      printf("GPU Max Threads Per Block: %d\n", prop.maxThreadsPerBlock);
+      printf("GPU Max Threads Per Dimension: [%d, %d, %d] (x,y,z)\n",
+             prop.maxThreadsDim[0], prop.maxThreadsDim[1],
+             prop.maxThreadsDim[2]);
+      printf("GPU Max Grid Size: [%d, %d, %d] (x,y,z)\n", prop.maxGridSize[0],
+             prop.maxGridSize[1], prop.maxGridSize[2]);
 #endif
     } else {
       printf("GPU Device: [Failed to get properties: %s]\n",
@@ -66,7 +72,9 @@ int main(int argc, char *argv[]) {
                       head_dim_padded, cfg.seed);
 
   // Create cuda configuration
-  dim3 threads_per_block(1, 1, 32);
+  // HACK: This created silent bugs in my code be very careful !
+  // Swapped mapping: x=queries (up to 1024), y=heads, z=batch (up to 64)
+  dim3 threads_per_block(256, 1, 1);
   CudaConfig cuda_conf = make_cuda_config(dims, threads_per_block);
 
   // Allocate workspace

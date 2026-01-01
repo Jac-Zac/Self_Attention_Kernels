@@ -103,16 +103,21 @@ typedef struct {
 
 static inline CudaConfig make_cuda_config(const AttentionDims dims,
                                           const dim3 threads_per_block) {
+  // Swapped 3D mapping:
+  // x dimension: queries/seq_len (supports up to 1024 threads)
+  // y dimension: heads
+  // z dimension: batch (typically small)
   size_t blocks_x =
-      (dims.batch + threads_per_block.x - 1) / threads_per_block.x;
+      (dims.seq_len + threads_per_block.x - 1) / threads_per_block.x;
   size_t blocks_y =
       (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
+  size_t blocks_z =
+      (dims.batch + threads_per_block.z - 1) / threads_per_block.z;
 
-  // NOTE: Tmp we are doing just 1 block for z
-  dim3 number_of_blocks(blocks_x, blocks_y, 1);
+  dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
 
   size_t total_threads =
-      (blocks_x * blocks_y) *
+      (blocks_x * blocks_y * blocks_z) *
       (threads_per_block.x * threads_per_block.y * threads_per_block.z);
 
   CudaConfig config;
