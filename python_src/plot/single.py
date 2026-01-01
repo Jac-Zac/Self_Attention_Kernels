@@ -1,6 +1,7 @@
 """Bar plot for single-threaded benchmark results."""
 
 import argparse
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -9,7 +10,8 @@ import numpy as np
 from .utils import COLORS, RESULTS_DIR, load_csv, save_and_show, split_versions
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for single-thread plot."""
     p = argparse.ArgumentParser(description="Single-thread benchmark bar plot")
     p.add_argument("-i", "--input", type=Path, default=RESULTS_DIR / "benchmark.csv")
     p.add_argument("-o", "--output", type=Path, default=RESULTS_DIR / "single_perf.png")
@@ -79,10 +81,12 @@ def plot(data: dict, threads: int, output: Path | None, show: bool) -> None:
     save_and_show(fig, output, show)
 
 
-def main():
+def main() -> None:
+    """Entry point for single-thread benchmark plotting."""
     args = parse_args()
     if not args.input.exists():
-        raise FileNotFoundError(f"Input not found: {args.input}")
+        print(f"Error: {args.input} not found", file=sys.stderr)
+        sys.exit(1)
     data = load_csv(args.input)
     print(f"Loaded {len(data)} versions from {args.input}")
     plot(data, args.threads, args.output, not args.no_show)

@@ -25,10 +25,9 @@
 // ASSUME_ALIGNED hints on row pointers become undefined behavior.
 // ============================================================================
 
-// the two following macros are useful only to
+// the following macro is useful only to
 // produce pragma strings in the source files
 //
-#define STRINGIFY(X) #X
 #define _DO_PRAGMA(x) _Pragma(#x)
 //
 

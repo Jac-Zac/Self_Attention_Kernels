@@ -1,18 +1,14 @@
 #pragma once
-#include <stdint.h>
+// Tensor allocation, threading utilities, and debug macros.
+// Memory alignment utilities are in memory.h.
 
+#include "memory.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "vector_pragmas.h"
-
-// Round up x to the next multiple of a (a must be power of 2)
-static inline size_t round_up_pow2(size_t x, size_t a) {
-  return (x + a - 1) & ~(a - 1);
-}
-
-// Shared outputs from attention run
+// Output container for validation artifacts
 struct Outputs {
   float *Q;
   float *K;
@@ -35,42 +31,14 @@ inline void free_outputs(struct Outputs *outputs) {
   outputs->elapsed_ns = 0;
 }
 
+// Debug Output
 #ifdef VERBOSE
 #define VERBOSE_PRINT(...) printf(__VA_ARGS__)
 #else
 #define VERBOSE_PRINT(...) ((void)0)
 #endif
 
-// RESTRICT macro
-#ifndef RESTRICT
-#if defined(__GNUC__) || defined(__clang__)
-#define RESTRICT __restrict__
-#elif defined(_MSC_VER)
-#define RESTRICT __restrict
-#elif __STDC_VERSION__ >= 199901L
-#define RESTRICT restrict
-#else
-#define RESTRICT
-#endif
-#endif
-
-// Alignment configuration and helpers
-#ifndef ALIGNMENT
-#define ALIGNMENT 64
-#endif
-
-// Aligned allocation for float buffers using posix_memalign
-#define ALIGNED_ALLOC_FLOAT(ptr, count)                                        \
-  (posix_memalign((void **)&(ptr), ALIGNMENT, sizeof(float) * (count)))
-
-// Compiler alignment assumption hint (generalized)
-#define ASSUME_ALIGNED_FLOAT(ptr)                                              \
-  (ptr = (float *)ASSUME_ALIGNED((ptr), ALIGNMENT))
-
-// ============================================================================
-// CUDA Error Handling
-// ============================================================================
-
+// CUDA error handling
 #ifdef USE_CUDA
 #define CUDA_CHECK(call)                                                       \
   do {                                                                         \
@@ -83,18 +51,10 @@ inline void free_outputs(struct Outputs *outputs) {
   } while (0)
 #endif
 
-// ============================================================================
-// Thread count resolution
-// ============================================================================
-
 #if defined(_OPENMP) && !defined(USE_CUDA)
 #include <omp.h>
 #endif
 
-/**
- * Resolve thread count: if requested <= 0, use OMP max or env variable.
- * Also sets omp_set_num_threads() if OpenMP is available.
- */
 inline int resolve_thread_count(int requested) {
   int threads = requested;
 #ifdef _OPENMP
@@ -119,10 +79,7 @@ inline int resolve_thread_count(int requested) {
   return threads;
 }
 
-// ============================================================================
-// Tensor allocation helpers
-// ============================================================================
-
+// Aligned tensor container for Q, K, V, out [B, H, S, D_pad] and workspace
 struct Tensors {
   float *RESTRICT Q;
   float *RESTRICT K;
@@ -131,10 +88,6 @@ struct Tensors {
   float *RESTRICT workspace;
 };
 
-/**
- * Allocate aligned Q, K, V, out tensors (each qkv_size floats)
- * and workspace (workspace_size floats). Returns 0 on success.
- */
 inline int allocate_tensors(struct Tensors *t, size_t qkv_size,
                             size_t workspace_size) {
   t->Q = t->K = t->V = t->out = t->workspace = NULL;
@@ -175,10 +128,6 @@ inline void free_tensors(struct Tensors *t) {
   t->Q = t->K = t->V = t->out = t->workspace = NULL;
 }
 
-/**
- * Initialize Q, K, V, out with random values using NUMA-aware first-touch.
- * Parallelizes over batch x n_heads x seq_len to match kernel access pattern.
- */
 inline void init_random_tensors(float *RESTRICT Q, float *RESTRICT K,
                                 float *RESTRICT V, float *RESTRICT out,
                                 size_t batch, size_t n_heads, size_t seq_len,

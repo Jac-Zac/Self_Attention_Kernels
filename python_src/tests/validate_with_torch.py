@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils import load_artifacts, run_c_binary, tmp_artifacts_dir
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for validation script."""
     p = argparse.ArgumentParser(description="Validate CMHSA against PyTorch")
     p.add_argument("--bin", type=str, default="./cmhsa.out", help="Path to binary")
     p.add_argument("--batch", type=int, default=1)
@@ -30,7 +31,8 @@ def parse_args():
     return p.parse_args()
 
 
-def main():
+def main() -> None:
+    """Run validation of C kernel output against PyTorch reference."""
     args = parse_args()
 
     with tmp_artifacts_dir() as outdir:
@@ -55,8 +57,8 @@ def main():
 
     print(f"max_abs_err={max_abs:.6g} rtol={args.rtol} atol={args.atol}")
     if not ok:
-        print("FAIL: C output differs from PyTorch reference")
-        raise SystemExit(1)
+        print("FAIL: C output differs from PyTorch reference", file=sys.stderr)
+        sys.exit(1)
     print("PASS")
 
 

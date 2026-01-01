@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 
 plt.style.use("ggplot")
 
+RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
+
 # Nord Theme Colors
 COLORS = {
     "ideal": "#4C566A",
@@ -23,11 +25,9 @@ COLORS = {
     ],
 }
 
-RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
-
 
 def load_csv(path: Path) -> dict[str, dict[int, float]]:
-    """Load CSV into {version: {threads: time_s}}."""
+    """Load benchmark CSV into {version: {threads: time_s}}."""
     data: dict[str, dict[int, float]] = {}
     with open(path) as f:
         for row in csv.DictReader(f):
@@ -44,7 +44,7 @@ def split_versions(data: dict) -> tuple[dict, dict]:
 
 
 def save_and_show(fig, path: Path | None, show: bool) -> None:
-    """Save and/or display figure."""
+    """Save figure to path and/or display it."""
     plt.tight_layout()
     if path:
         path.parent.mkdir(parents=True, exist_ok=True)

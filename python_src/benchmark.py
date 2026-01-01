@@ -29,7 +29,8 @@ from utils import (
 )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for benchmark script."""
     p = argparse.ArgumentParser(description="Benchmark CMHSA kernels (CSV output)")
     p.add_argument(
         "--bins", type=str, nargs="+", required=True, help="C kernel binaries"

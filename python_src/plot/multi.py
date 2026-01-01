@@ -1,6 +1,7 @@
 """Strong scaling plot for multi-threaded benchmark results."""
 
 import argparse
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -10,7 +11,8 @@ from matplotlib.ticker import ScalarFormatter
 from .utils import COLORS, RESULTS_DIR, load_csv, save_and_show, split_versions
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for multi-thread scaling plot."""
     p = argparse.ArgumentParser(description="Multi-thread strong scaling plot")
     p.add_argument("-i", "--input", type=Path, default=RESULTS_DIR / "benchmark.csv")
     p.add_argument(
@@ -21,7 +23,7 @@ def parse_args():
 
 
 def plot(data: dict, output: Path | None, show: bool) -> None:
-    """Scaling plot: self-relative, vs naive, vs SDPA."""
+    """Generate strong scaling plot with self-relative speedup and execution time."""
     pytorch, kernels = split_versions(data)
     threads = np.array(sorted(next(iter(data.values())).keys()))
 
@@ -138,10 +140,12 @@ def plot(data: dict, output: Path | None, show: bool) -> None:
     save_and_show(fig, output, show)
 
 
-def main():
+def main() -> None:
+    """Entry point for multi-thread scaling plot."""
     args = parse_args()
     if not args.input.exists():
-        raise FileNotFoundError(f"Input not found: {args.input}")
+        print(f"Error: {args.input} not found", file=sys.stderr)
+        sys.exit(1)
     data = load_csv(args.input)
     print(f"Loaded {len(data)} versions from {args.input}")
     plot(data, args.output, not args.no_show)

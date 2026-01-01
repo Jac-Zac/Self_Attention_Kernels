@@ -7,7 +7,8 @@ from pathlib import Path
 from .utils import RESULTS_DIR, load_csv
 
 
-def main():
+def main() -> None:
+    """Auto-detect benchmark type and run appropriate plot."""
     p = argparse.ArgumentParser(description="Auto-detect benchmark plot type")
     p.add_argument("-i", "--input", type=Path, default=RESULTS_DIR / "benchmark.csv")
     p.add_argument("-o", "--output", type=Path, default=None)

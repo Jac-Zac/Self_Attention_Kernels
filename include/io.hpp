@@ -1,9 +1,27 @@
 #pragma once
+// Binary I/O utilities for writing validation artifacts to disk.
+
 #include "parser.hpp"
 #include "utils.hpp"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+// Create directory if it doesn't exist (replaces system("mkdir -p"))
+inline int ensure_directory(const char *path) {
+  struct stat st;
+  memset(&st, 0, sizeof(st));
+  if (stat(path, &st) == -1) {
+    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+      fprintf(stderr, "Error: cannot create directory %s: %s\n", path,
+              strerror(errno));
+      return -1;
+    }
+  }
+  return 0;
+}
 
 inline void write_bin(const char *path, const float *data, size_t count) {
   if (!data) {
@@ -75,15 +93,11 @@ inline void write_packed_qkv(const char *path, const float *src,
   free(tmp);
 }
 
-// Write validation artifacts (Q, K, V, out tensors and metadata) to disk
-// for comparison with reference implementations
+// Write validation artifacts (Q, K, V, out tensors and metadata) to disk.
 inline void write_validation_artifacts(const char *dir, const RunConfig *cfg,
                                        const struct Outputs *out) {
-  char cmd[256];
-  snprintf(cmd, sizeof(cmd), "mkdir -p %s", dir);
-  int ret = system(cmd);
-  if (ret != 0) {
-    fprintf(stderr, "Warning: mkdir command returned %d\n", ret);
+  if (ensure_directory(dir) != 0) {
+    fprintf(stderr, "Warning: could not create output directory %s\n", dir);
   }
 
   char path[256];

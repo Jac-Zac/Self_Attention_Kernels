@@ -42,10 +42,7 @@ def run_c_binary(
     validate_outdir: Path | None = None,
     use_srun: bool = False,
 ) -> str:
-    """
-    Run the C/CUDA binary with the given parameters.
-    Automatically detects if binary is CUDA and omits --threads flag.
-    """
+    """Run the C/CUDA binary with given parameters. Returns stdout."""
     cmd = ["srun"] if use_srun else []
 
     base_cmd = [
@@ -68,6 +65,10 @@ def run_c_binary(
 
     cmd.extend(base_cmd)
 
+    # Add threads argument for CPU backends
+    if threads > 0:
+        cmd.extend(["--threads", str(threads)])
+
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])
 
@@ -77,16 +78,7 @@ def run_c_binary(
 
 
 def _load_tensor(path: Path, shape: tuple) -> torch.Tensor:
-    """
-    Load a binary float32 tensor from disk as a contiguous torch.Tensor.
-
-    Args:
-        path: Path to the binary file
-        shape: Target shape for the tensor (B, H, S, D)
-
-    Returns:
-        torch.Tensor: Loaded and reshaped tensor
-    """
+    """Load a binary float32 file into a torch.Tensor with given shape."""
     arr = np.fromfile(path, dtype=np.float32)
     return torch.from_numpy(arr.reshape(shape)).contiguous()
 
@@ -94,16 +86,7 @@ def _load_tensor(path: Path, shape: tuple) -> torch.Tensor:
 def load_artifacts(
     outdir: Path,
 ) -> tuple[dict, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Load all artifacts from C binary output directory.
-
-    Args:
-        outdir: Directory containing meta.json and binary tensor files
-
-    Returns:
-        tuple: (meta, Q, K, V, out_c) where meta is a dict with config info
-               and Q, K, V, out_c are torch.Tensors of shape (B, H, S, D)
-    """
+    """Load meta.json and Q, K, V, out tensors from C binary output directory."""
     with open(outdir / "meta.json", "r") as f:
         meta = json.load(f)
 
@@ -122,15 +105,7 @@ def load_artifacts(
 
 
 def parse_gpu_info(output: str) -> dict:
-    """
-    Extract GPU information from CUDA binary output.
-
-    Args:
-        output: Standard output from the C binary
-
-    Returns:
-        dict: GPU information with keys: name, compute_capability, memory_gb, sm_count
-    """
+    """Extract GPU info (name, compute_capability, memory_gb, sm_count) from output."""
     gpu_info = {}
 
     # Extract GPU name
@@ -157,18 +132,7 @@ def parse_gpu_info(output: str) -> dict:
 
 
 def parse_c_time(output: str) -> float:
-    """
-    Extract per-iteration time in seconds from C binary output.
-
-    Args:
-        output: Standard output from the C binary
-
-    Returns:
-        float: Per-iteration execution time in seconds
-
-    Raises:
-        RuntimeError: If time pattern is not found in output
-    """
+    """Extract per-iteration time in seconds from C binary output."""
     # Try CPU pattern first, then CUDA pattern
     m = re.search(
         r"(CPU|CUDA) attention forward \(per-iter\):\s*([0-9.]+)\s*(ms|s)", output
