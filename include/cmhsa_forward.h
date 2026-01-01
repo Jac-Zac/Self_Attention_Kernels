@@ -109,7 +109,6 @@ static inline CudaConfig make_cuda_config(const AttentionDims dims,
   // z dimension: batch (typically small)
   size_t blocks_x =
       (dims.seq_len + threads_per_block.x - 1) / threads_per_block.x;
-  // (dims.seq_len + threads_per_block.x - 1) / threads_per_block.x;
   size_t blocks_y =
       (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
   size_t blocks_z =
