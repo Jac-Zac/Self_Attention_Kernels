@@ -9,10 +9,11 @@
 #SBATCH -t 00:05:00
 #SBATCH --job-name=self_attention_gpu
 
+module load cuda
+
 echo "Running GPU benchmark on Orfeo with UV"
 OMP_PLACES=cores
 OMP_PROC_BIND=close
-
 
 if [ ! -d .venv ]; then
   echo "ERROR: .venv missing. Build environment before benchmarking."
@@ -36,21 +37,6 @@ N_HEADS="${N_HEADS:-8}"
 SEQ_LEN="${SEQ_LEN:-2048}"
 HEAD_DIM="${HEAD_DIM:-128}"
 
-# =======================================================
-# Load the required modules
-# =======================================================
-# module load openmpi/4.1.6--gcc--12.2.0
-module load intel-oneapi-vtune/2024.1.0
-
-# =======================================================
-# Set OpenMP environment variables
-# =======================================================
-export OMP_NUM_THREADS=${THREADS}
-export OMP_PLACES=cores
-export OMP_PROC_BIND=close
-# export OMP_DISPLAY_AFFINITY=TRUE
-
-# =======================================================
 # Setup
 # =======================================================
 EXEC=./cmhsa.out
@@ -70,10 +56,10 @@ timestamp=$(date +"%Y%m%d_%H%M%S")
 report_file="report_${timestamp}"
 
 # Run the nsys profile command and store the report in the specified directory
-nsys profile --trace=cuda --stats=true -o "${report_dir_nsys}/${report_file}" "$@" $ARGS
+srun nsys profile --trace=cuda --stats=true -o "${report_dir_nsys}/${report_file}" "$EXEC" "$ARGS"
 
 # Notify the user
 echo "Report generated: ${report_dir_nsys}/${report_file}.qdrep"
 
 # Original
-srun ncu --set full --launch-skip 0 --launch-count 1 --import-source yes -o "${report_dir_ncu}/${report_file}" "$@" $ARGS
+# srun ncu --set full --launch-skip 0 --launch-count 1 --import-source yes -o "${report_dir_ncu}/${report_file}" "$EXEC" "$ARGS"
