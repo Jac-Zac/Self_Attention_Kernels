@@ -94,9 +94,9 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           aw[key_pos] = score;
         }
 
-        // =====================================================================
-        // Step 2: Numerically stable softmax (plain expf, no SIMD padding)
-        // =====================================================================
+        // ===============================================
+        // Step 2: Numerically stable softmax (using expf)
+        // ===============================================
         float sum_exp = 0.0f;
         for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
           float exp_val = expf(aw[key_pos] - max_score);

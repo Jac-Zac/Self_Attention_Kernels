@@ -78,10 +78,29 @@ int main(int argc, char *argv[]) {
   dim3 threads_per_block(512, 1, 1);
   CudaConfig cuda_conf = make_cuda_config(dims, threads_per_block);
 
-  // Allocate workspace
+  // Allocate workspace based on kernel version:
+  // - v0, v1: Full rectangular workspace (total_threads * seq_len_padded)
+  // - v2: Triangular workspace (batch * n_heads * seq_len * (seq_len + 1) / 2)
+  // - v3: Uses shared memory, no global workspace needed (allocate minimal)
   const size_t seq_len_padded = round_up_pow2(dims.seq_len, VEC_PADDING);
-  size_t workspace_size =
-      cuda_conf.total_threads * seq_len_padded * sizeof(float);
+  size_t workspace_size;
+
+#if defined(VERSION_STR) && (VERSION_STR[1] == '2')
+  // v2: Triangular workspace - ~50% memory savings
+  size_t triangular_size = cfg.seq_len * (cfg.seq_len + 1) / 2;
+  workspace_size = cfg.batch * cfg.n_heads * triangular_size * sizeof(float);
+  VERBOSE_PRINT("Workspace: triangular layout (%zu bytes, %.1f%% of v0)\n",
+                workspace_size,
+                100.0f * triangular_size / (cfg.seq_len * seq_len_padded));
+#elif defined(VERSION_STR) && (VERSION_STR[1] == '3')
+  // v3: Uses shared memory - allocate minimal workspace (not used by kernel)
+  workspace_size = sizeof(float);  // Minimal allocation
+  VERBOSE_PRINT("Workspace: shared memory (no global workspace needed)\n");
+#else
+  // v0, v1 and others: Full rectangular workspace
+  workspace_size = cuda_conf.total_threads * seq_len_padded * sizeof(float);
+  VERBOSE_PRINT("Workspace: rectangular layout (%zu bytes)\n", workspace_size);
+#endif
 
   float *workspace;
   CUDA_CHECK(cudaMallocManaged(&workspace, workspace_size));
