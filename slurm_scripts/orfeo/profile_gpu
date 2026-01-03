@@ -24,7 +24,7 @@ SEQ_LEN="${SEQ_LEN:-1024}"
 HEAD_DIM="${HEAD_DIM:-128}"
 
 # Compile the code
-make cuda VERSION=$VERSION
+make cuda VERSION=$VERSION NVCC_FLAGS+="-lineinfo"
 
 echo "Running GPU benchmark on Orfeo with UV"
 OMP_PLACES=cores
