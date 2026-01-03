@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import csv
+import sys
 import time
 from pathlib import Path
 
@@ -56,6 +57,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--rtol", type=float, default=1e-4)
     p.add_argument("--output", "-o", type=str, default=None, help="Output CSV path")
     p.add_argument("--use-srun", action="store_true", help="Use srun for SLURM")
+    p.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        choices=["cpu", "cuda"],
+        help="Device to run PyTorch on (default: cpu)",
+    )
     return p.parse_args()
 
 
@@ -123,6 +131,13 @@ def bench_torch(
 def main():
     args = parse_args()
 
+    device = torch.device(args.device)
+    if args.device == "cuda" and not torch.cuda.is_available():
+        print(
+            f"ERROR: --device cuda requested but CUDA is not available", file=sys.stderr
+        )
+        sys.exit(1)
+
     # Output path
     output_path = Path(args.output) if args.output else RESULTS_DIR / "benchmark.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +166,7 @@ def main():
                 args.use_srun,
             )
             first_time = parse_c_time(c_output)
-            _, Q, K, V, first_out_c = load_artifacts(outdir)
+            _, Q, K, V, first_out_c = load_artifacts(outdir, device=args.device)
 
             # Extract GPU info for CUDA backend (only on first iteration)
             if is_cuda and not gpu_info:
@@ -172,6 +187,7 @@ def main():
         out_ref, sdpa_time = bench_torch(
             Q, K, V, args.warmup, args.iters, use_sdpa=True
         )
+        out_ref = out_ref.to(device)
 
         # Validate first kernel
         assert torch.allclose(
@@ -211,7 +227,7 @@ def main():
                     args.use_srun,
                 )
                 c_time = parse_c_time(c_output)
-                _, _, _, _, out_c = load_artifacts(outdir)
+                _, _, _, _, out_c = load_artifacts(outdir, device=args.device)
 
             assert torch.allclose(
                 out_c, out_ref, rtol=args.rtol, atol=args.atol

@@ -4,45 +4,6 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-// ============================================================================
-// Kernel Configuration (version-specific)
-// ============================================================================
-#define THREADS_PER_BLOCK_X 512
-#define THREADS_PER_BLOCK_Y 1
-#define THREADS_PER_BLOCK_Z 1
-
-// Internal config struct - not exposed in header
-typedef struct {
-  dim3 threads_per_block;
-  dim3 number_of_blocks;
-  size_t total_threads;
-} CudaConfig;
-
-static CudaConfig make_cuda_config(const AttentionDims dims) {
-  dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y,
-                         THREADS_PER_BLOCK_Z);
-
-  // 3D mapping: x=queries/seq_len, y=heads, z=batch
-  size_t blocks_x =
-      (dims.seq_len + threads_per_block.x - 1) / threads_per_block.x;
-  size_t blocks_y =
-      (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
-  size_t blocks_z =
-      (dims.batch + threads_per_block.z - 1) / threads_per_block.z;
-
-  dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
-
-  size_t total_threads =
-      (blocks_x * blocks_y * blocks_z) *
-      (threads_per_block.x * threads_per_block.y * threads_per_block.z);
-
-  CudaConfig config;
-  config.threads_per_block = threads_per_block;
-  config.number_of_blocks = number_of_blocks;
-  config.total_threads = total_threads;
-  return config;
-}
-
 // NOTE: Baseline implementation ...
 
 __global__ void
@@ -144,6 +105,45 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
       }
     }
   }
+}
+
+// ============================================================================
+// Kernel Configuration (version-specific)
+// ============================================================================
+#define THREADS_PER_BLOCK_X 512
+#define THREADS_PER_BLOCK_Y 1
+#define THREADS_PER_BLOCK_Z 1
+
+// Internal config struct - not exposed in header
+typedef struct {
+  dim3 threads_per_block;
+  dim3 number_of_blocks;
+  size_t total_threads;
+} CudaConfig;
+
+static CudaConfig make_cuda_config(const AttentionDims dims) {
+  dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y,
+                         THREADS_PER_BLOCK_Z);
+
+  // 3D mapping: x=queries/seq_len, y=heads, z=batch
+  size_t blocks_x =
+      (dims.seq_len + threads_per_block.x - 1) / threads_per_block.x;
+  size_t blocks_y =
+      (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
+  size_t blocks_z =
+      (dims.batch + threads_per_block.z - 1) / threads_per_block.z;
+
+  dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
+
+  size_t total_threads =
+      (blocks_x * blocks_y * blocks_z) *
+      (threads_per_block.x * threads_per_block.y * threads_per_block.z);
+
+  CudaConfig config;
+  config.threads_per_block = threads_per_block;
+  config.number_of_blocks = number_of_blocks;
+  config.total_threads = total_threads;
+  return config;
 }
 
 // ============================================================================

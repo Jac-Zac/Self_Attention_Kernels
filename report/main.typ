@@ -32,6 +32,9 @@
 
 = CUDA Implementation
 
+I initially tried malloc Managed but for some reason even though I coundn't really see it clearly from the nsyight system the results were absolutly atrocious. 
+Therefore i quickly switched to a direct allocation on the gpu with CudaMalloc and CudaMemcopy.
+
 [To be completed in next sections]
 
 = Performance Analysis and Results

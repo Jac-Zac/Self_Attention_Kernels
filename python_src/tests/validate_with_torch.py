@@ -28,12 +28,26 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--iters", type=int, default=1)
     p.add_argument("--threads", type=int, default=1)
     p.add_argument("--use-srun", action="store_true", help="Use srun for SLURM")
+    p.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        choices=["cpu", "cuda"],
+        help="Device to run PyTorch on (default: cpu)",
+    )
     return p.parse_args()
 
 
 def main() -> None:
     """Run validation of C kernel output against PyTorch reference."""
     args = parse_args()
+
+    device = torch.device(args.device)
+    if args.device == "cuda" and not torch.cuda.is_available():
+        print(
+            f"ERROR: --device cuda requested but CUDA is not available", file=sys.stderr
+        )
+        sys.exit(1)
 
     with tmp_artifacts_dir() as outdir:
         run_c_binary(
@@ -48,9 +62,10 @@ def main() -> None:
             validate_outdir=outdir,
             use_srun=args.use_srun,
         )
-        _, Q, K, V, out_c = load_artifacts(outdir)
+        _, Q, K, V, out_c = load_artifacts(outdir, device=args.device)
 
     out_torch = F.scaled_dot_product_attention(Q, K, V, is_causal=True)
+    out_torch = out_torch.to(device)
 
     max_abs = (out_c - out_torch).abs().max().item()
     ok = torch.allclose(out_c, out_torch, rtol=args.rtol, atol=args.atol)

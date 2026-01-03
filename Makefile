@@ -66,6 +66,7 @@ cuda:
 
 BENCH_BACKEND ?= single
 BENCH_THREADS ?= 1
+BENCH_DEVICE ?= $(if $(filter cuda,$(BENCH_BACKEND)),cuda,cpu)
 BENCH_OUTPUT_FILE ?=
 
 # Benchmark parameters (overridable)
@@ -95,6 +96,7 @@ else
 endif
 BENCH_BACKEND_ARG = $(if $(filter cuda,$(BENCH_BACKEND)),--backend cuda,$(if $(filter multi,$(BENCH_BACKEND)),--backend multi,--backend single))
 BENCH_THREADS_ARG = $(if $(filter cuda,$(BENCH_BACKEND)),,--threads $(BENCH_THREADS))
+BENCH_DEVICE_ARG = --device $(BENCH_DEVICE)
 
 benchmark:
 	@bins=""; \
@@ -107,10 +109,10 @@ benchmark:
 	  bins="$$bins ./$$bin"; \
 	done; \
 	$(if $(filter 1,$(USE_SRUN)), \
-	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) --use-srun $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)), \
+	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) $(BENCH_DEVICE_ARG) --use-srun $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)), \
 	  OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) \
 	  OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS) \
-	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)))
+	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) $(BENCH_DEVICE_ARG) $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)))
 	@$(MAKE) clean
 
 # GPU detection (can be overridden with: make test HAS_GPU=false)
@@ -194,6 +196,7 @@ help:
 	@echo "Benchmark Variables:"
 	@echo "  BENCH_BACKEND      Backend: single (default), multi, or cuda"
 	@echo "  BENCH_THREADS      Thread count (default: 1)"
+	@echo "  BENCH_DEVICE       Device for PyTorch: auto (cuda if BENCH_BACKEND=cuda, else cpu)"
 	@echo "  BENCH_BATCH        Batch size (default: 2)"
 	@echo "  BENCH_HEADS        Number of heads (default: 4)"
 	@echo "  BENCH_SEQLEN       Sequence length (default: 2048)"

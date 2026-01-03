@@ -85,6 +85,7 @@ def _load_tensor(path: Path, shape: tuple) -> torch.Tensor:
 
 def load_artifacts(
     outdir: Path,
+    device: str = "cpu",
 ) -> tuple[dict, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Load meta.json and Q, K, V, out tensors from C binary output directory."""
     with open(outdir / "meta.json", "r") as f:
@@ -96,10 +97,12 @@ def load_artifacts(
     D = int(meta["head_dim"])
     shape = (B, H, S, D)
 
-    Q = _load_tensor(outdir / "q.bin", shape)
-    K = _load_tensor(outdir / "k.bin", shape)
-    V = _load_tensor(outdir / "v.bin", shape)
-    out_c = _load_tensor(outdir / "out.bin", shape)
+    device_obj = torch.device(device)
+
+    Q = _load_tensor(outdir / "q.bin", shape).to(device_obj)
+    K = _load_tensor(outdir / "k.bin", shape).to(device_obj)
+    V = _load_tensor(outdir / "v.bin", shape).to(device_obj)
+    out_c = _load_tensor(outdir / "out.bin", shape).to(device_obj)
 
     return meta, Q, K, V, out_c
 
