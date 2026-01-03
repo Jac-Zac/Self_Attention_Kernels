@@ -60,15 +60,22 @@ int main(int argc, char *argv[]) {
   const size_t qkv_size =
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
-  // Allocate CUDA managed memory
-  float *Q, *K, *V, *out;
-  CUDA_CHECK(cudaMallocManaged(&Q, qkv_size * sizeof(float)));
-  CUDA_CHECK(cudaMallocManaged(&K, qkv_size * sizeof(float)));
-  CUDA_CHECK(cudaMallocManaged(&V, qkv_size * sizeof(float)));
-  CUDA_CHECK(cudaMallocManaged(&out, qkv_size * sizeof(float)));
+  // Allocate CPU memory
+  float *Q_host, *K_host, *V_host, *out_host;
+  Q_host = (float *)malloc(qkv_size * sizeof(float));
+  K_host = (float *)malloc(qkv_size * sizeof(float));
+  V_host = (float *)malloc(qkv_size * sizeof(float));
+  out_host = (float *)malloc(qkv_size * sizeof(float));
 
-  // Initialize with random values (CPU, works on managed memory)
-  init_random_tensors(Q, K, V, out, cfg.batch, cfg.n_heads, cfg.seq_len,
+  // Allocate GPU memory
+  float *Q_dev, *K_dev, *V_dev, *out_dev;
+  CUDA_CHECK(cudaMalloc(&Q_dev, qkv_size * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&K_dev, qkv_size * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&V_dev, qkv_size * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&out_dev, qkv_size * sizeof(float)));
+
+  // Initialize with random values (CPU)
+  init_random_tensors(Q_host, K_host, V_host, out_host, cfg.batch, cfg.n_heads, cfg.seq_len,
                       head_dim_padded, cfg.seed);
 
   // Allocate workspace using kernel's size query
@@ -77,8 +84,13 @@ int main(int argc, char *argv[]) {
 
   float *workspace = NULL;
   if (workspace_size > 0) {
-    CUDA_CHECK(cudaMallocManaged(&workspace, workspace_size));
+    CUDA_CHECK(cudaMalloc(&workspace, workspace_size));
   }
+
+  // Copy data from host to device
+  CUDA_CHECK(cudaMemcpy(Q_dev, Q_host, qkv_size * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(K_dev, K_host, qkv_size * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(V_dev, V_host, qkv_size * sizeof(float), cudaMemcpyHostToDevice));
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {

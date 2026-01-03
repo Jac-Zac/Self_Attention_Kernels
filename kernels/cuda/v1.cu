@@ -7,7 +7,7 @@
 // ============================================================================
 // Kernel Configuration (version-specific)
 // ============================================================================
-#define THREADS_PER_BLOCK_X 512
+#define THREADS_PER_BLOCK_X 64
 #define THREADS_PER_BLOCK_Y 1
 #define THREADS_PER_BLOCK_Z 1
 
@@ -81,67 +81,68 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   const float scale = 1.0f / sqrtf((float)head_dim);
   const size_t head_dim_pad = dims.head_dim_padded;
 
-  if (q < seq_len) {
-    // Compute triangular workspace offset for this (batch, head, query)
-    // position Each (batch, head) gets a triangular workspace
-    // Query position q needs q+1 attention weights (positions 0..q)
-    const size_t workspace_per_bh = seq_len * (seq_len + 1) / 2;
+  if (q >= seq_len)
+    return;
 
-    // Base offset for this (batch, head) pair
-    const size_t bh_workspace_offset = (b * num_heads + h) * workspace_per_bh;
+  // Compute triangular workspace offset for this (batch, head, query)
+  // position Each (batch, head) gets a triangular workspace
+  // Query position q needs q+1 attention weights (positions 0..q)
+  const size_t workspace_per_bh = seq_len * (seq_len + 1) / 2;
 
-    // Triangular offset: sum_{i=0}^{q-1} (i+1) = q * (q+1) / 2
-    // This gives us the starting index for this thread's q+1 attention weights
-    const size_t triangular_offset = q * (q + 1) / 2;
+  // Base offset for this (batch, head) pair
+  const size_t bh_workspace_offset = (b * num_heads + h) * workspace_per_bh;
 
-    float *RESTRICT aw = attn_weights + bh_workspace_offset + triangular_offset;
+  // Triangular offset: sum_{i=0}^{q-1} (i+1) = q * (q+1) / 2
+  // This gives us the starting index for this thread's q+1 attention weights
+  const size_t triangular_offset = q * (q + 1) / 2;
 
-    // Base offset for current batch and head: [b, h, :, :]
-    const size_t bh_offset =
-        b * (num_heads * seq_len * head_dim_pad) + h * (seq_len * head_dim_pad);
+  float *RESTRICT aw = attn_weights + bh_workspace_offset + triangular_offset;
 
-    const size_t query_offset = bh_offset + q * head_dim_pad;
+  // Base offset for current batch and head: [b, h, :, :]
+  const size_t bh_offset =
+      b * (num_heads * seq_len * head_dim_pad) + h * (seq_len * head_dim_pad);
 
-    // Step 1: Compute scaled dot-product scores + track max (fused)
-    float max_score = -FLT_MAX;
-    for (size_t key_pos = 0; key_pos <= q; key_pos++) {
-      float dot_product = 0.0f;
-      size_t key_offset = bh_offset + key_pos * head_dim_pad;
+  const size_t query_offset = bh_offset + q * head_dim_pad;
 
-      // Dot product across head dimension
-      for (size_t d = 0; d < head_dim; d++) {
-        dot_product += Q[query_offset + d] * K[key_offset + d];
-      }
+  // Step 1: Compute scaled dot-product scores + track max (fused)
+  float max_score = -FLT_MAX;
+  for (size_t key_pos = 0; key_pos <= q; key_pos++) {
+    float dot_product = 0.0f;
+    size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
-      const float score = dot_product * scale;
-      max_score = score > max_score ? score : max_score;
-      aw[key_pos] = score;
-    }
-
-    // Step 2: Numerically stable softmax (plain expf)
-    float sum_exp = 0.0f;
-    for (size_t key_pos = 0; key_pos <= q; key_pos++) {
-      float exp_val = expf(aw[key_pos] - max_score);
-      aw[key_pos] = exp_val;
-      sum_exp += exp_val;
-    }
-
-    // Step 3: Weighted sum of values
-    const size_t output_offset = bh_offset + q * head_dim_pad;
-    const float inv_sum_exp = 1.0f / sum_exp;
-
-    // Initialize output to zero
+    // Dot product across head dimension
     for (size_t d = 0; d < head_dim; d++) {
-      out[output_offset + d] = 0.0f;
+      dot_product += Q[query_offset + d] * K[key_offset + d];
     }
 
-    for (size_t key_pos = 0; key_pos <= q; key_pos++) {
-      size_t value_offset = bh_offset + key_pos * head_dim_pad;
-      const float normalized_weight = aw[key_pos] * inv_sum_exp;
+    const float score = dot_product * scale;
+    max_score = score > max_score ? score : max_score;
+    aw[key_pos] = score;
+  }
 
-      for (size_t d = 0; d < head_dim; d++) {
-        out[output_offset + d] += normalized_weight * V[value_offset + d];
-      }
+  // Step 2: Numerically stable softmax (plain expf)
+  float sum_exp = 0.0f;
+  for (size_t key_pos = 0; key_pos <= q; key_pos++) {
+    float exp_val = expf(aw[key_pos] - max_score);
+    aw[key_pos] = exp_val;
+    sum_exp += exp_val;
+  }
+
+  // Step 3: Weighted sum of values
+  const size_t output_offset = bh_offset + q * head_dim_pad;
+  const float inv_sum_exp = 1.0f / sum_exp;
+
+  // Initialize output to zero
+  for (size_t d = 0; d < head_dim; d++) {
+    out[output_offset + d] = 0.0f;
+  }
+
+  for (size_t key_pos = 0; key_pos <= q; key_pos++) {
+    size_t value_offset = bh_offset + key_pos * head_dim_pad;
+    const float normalized_weight = aw[key_pos] * inv_sum_exp;
+
+    for (size_t d = 0; d < head_dim; d++) {
+      out[output_offset + d] += normalized_weight * V[value_offset + d];
     }
   }
 }
