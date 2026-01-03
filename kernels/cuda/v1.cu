@@ -45,7 +45,21 @@ static CudaConfig make_cuda_config(const AttentionDims dims) {
 
 // NOTE:
 // Changes from v0:
-// - This now uses an approach with less wasted loops
+// 1. Loop fusion optimization - 4 loops instead of 6:
+//    - v1: fused max computation with dot product, separate exp loop, then
+//    fused output Reduces memory access overhead
+//
+// 2. Simplified early exit check:
+//    - v1: if (q < seq_len)
+//    - Justification: With (512,1,1) thread blocks and exact block counts for
+//    y,z dims, batch and head indices are always valid. Only seq_len can have
+//    extra threads when seq_len is not a multiple of 512.
+//
+// 3. Triangular workspace allocation (50% memory reduction):
+//    - v1: Leverages causal mask triangular pattern
+//          Thread q only needs q+1 attention weights (attends to positions
+//          0..q) Total per (batch,head): sum_{i=1}^{seq_len} i = seq_len *
+//          (seq_len+1) / 2 -> Memory savings: ~50%
 
 __global__ void
 cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
@@ -60,31 +74,29 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   int b = blockIdx.z * blockDim.z + threadIdx.z;
 
   int q = blockIdx.x * blockDim.x + threadIdx.x;
-  // int q = blockIdx.x * blockDim.x + threadIdx.x;
 
-  const size_t batch_size = dims.batch;
   const size_t num_heads = dims.n_heads;
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
   const float scale = 1.0f / sqrtf((float)head_dim);
   const size_t head_dim_pad = dims.head_dim_padded;
-  const size_t seq_len_padded = dims.seq_len_padded;
 
-  // Only proceed if this thread has valid work
-  if (b < batch_size && h < num_heads && q < seq_len) {
-    // Each thread gets its own workspace for attention weights
-    // Use GLOBAL thread ID for workspace indexing
-    int block_id = blockIdx.z * (gridDim.x * gridDim.y) +
-                   blockIdx.y * gridDim.x + blockIdx.x;
+  if (q < seq_len) {
+    // Compute triangular workspace offset for this (batch, head, query)
+    // position Each (batch, head) gets a triangular workspace of size seq_len *
+    // (seq_len+1) / 2
+    //
+    // Query position q needs q+1 attention weights (positions 0..q)
+    const size_t workspace_per_bh = seq_len * (seq_len + 1) / 2;
 
-    int threads_per_block = blockDim.x * blockDim.y * blockDim.z;
+    // Base offset for this (batch, head) pair
+    const size_t bh_workspace_offset = (b * num_heads + h) * workspace_per_bh;
 
-    int thread_id_in_block = threadIdx.z * (blockDim.x * blockDim.y) +
-                             threadIdx.y * blockDim.x + threadIdx.x;
+    // Triangular offset: sum_{i=0}^{q-1} (i+1) = q * (q+1) / 2
+    // This gives us the starting index for this thread's q+1 attention weights
+    const size_t triangular_offset = q * (q + 1) / 2;
 
-    int global_thread_id = block_id * threads_per_block + thread_id_in_block;
-
-    float *RESTRICT aw = attn_weights + global_thread_id * seq_len_padded;
+    float *RESTRICT aw = attn_weights + bh_workspace_offset + triangular_offset;
 
     // Base offset for current batch and head: [b, h, :, :]
     const size_t bh_offset =
@@ -146,9 +158,10 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 // ============================================================================
 
 size_t cmhsa_get_workspace_size(const AttentionDims dims) {
-  CudaConfig config = make_cuda_config(dims);
-  size_t seq_len_padded = round_up_pow2(dims.seq_len, VEC_PADDING);
-  return config.total_threads * seq_len_padded * sizeof(float);
+  // Triangular workspace allocation leveraging causal mask pattern
+  // Each (batch, head) needs: seq_len * (seq_len + 1) / 2 floats
+  const size_t workspace_per_bh = dims.seq_len * (dims.seq_len + 1) / 2;
+  return dims.batch * dims.n_heads * workspace_per_bh * sizeof(float);
 }
 
 __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
