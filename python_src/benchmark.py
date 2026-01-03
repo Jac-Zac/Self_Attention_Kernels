@@ -111,7 +111,7 @@ def bench_torch(
         )
     else:
         S = Q.shape[-2]
-        mask = torch.triu(torch.ones(S, S, dtype=torch.bool), diagonal=1)
+        mask = torch.triu(torch.ones(S, S, dtype=torch.bool), diagonal=1).to(Q.device)
         scale = Q.shape[-1] ** -0.5
 
         def fn():
