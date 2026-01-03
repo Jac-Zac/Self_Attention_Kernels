@@ -71,27 +71,14 @@ int main(int argc, char *argv[]) {
   init_random_tensors(Q, K, V, out, cfg.batch, cfg.n_heads, cfg.seq_len,
                       head_dim_padded, cfg.seed);
 
-  // Create cuda configuration
-  // HACK: This created silent bugs in my code be very careful !
-  // Swapped mapping: x=queries (up to 1024), y=heads, z=batch (up to 64)
-  // dim3 threads_per_block(256, 1, 1);
-  dim3 threads_per_block(512, 1, 1);
-  CudaConfig cuda_conf = make_cuda_config(dims, threads_per_block);
+  // Allocate workspace using kernel's size query
+  size_t workspace_size = cmhsa_get_workspace_size(dims);
+  VERBOSE_PRINT("Workspace size: %zu bytes\n", workspace_size);
 
-  // Allocate workspace based on kernel version:
-  // NOTE: I should probably do something like this
-  // - v0, v1: Full rectangular workspace (total_threads * seq_len_padded)
-  // - v2: Triangular workspace (batch * n_heads * seq_len * (seq_len + 1) / 2)
-  // - v3: Uses shared memory, no global workspace needed (allocate minimal)
-  const size_t seq_len_padded = round_up_pow2(dims.seq_len, VEC_PADDING);
-  size_t workspace_size;
-
-  // v0, v1 and others: Full rectangular workspace
-  workspace_size = cuda_conf.total_threads * seq_len_padded * sizeof(float);
-  VERBOSE_PRINT("Workspace: rectangular layout (%zu bytes)\n", workspace_size);
-
-  float *workspace;
-  CUDA_CHECK(cudaMallocManaged(&workspace, workspace_size));
+  float *workspace = NULL;
+  if (workspace_size > 0) {
+    CUDA_CHECK(cudaMallocManaged(&workspace, workspace_size));
+  }
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
@@ -102,7 +89,7 @@ int main(int argc, char *argv[]) {
 
   // Warm-up runs
   for (int i = 0; i < cfg.warmup; i++) {
-    cmhsa_forward_cuda(Q, K, V, out, workspace, dims, cuda_conf);
+    cmhsa_forward_cuda(Q, K, V, out, workspace, dims);
   }
 
   // Timed iterations using CUDA events
@@ -114,7 +101,7 @@ int main(int argc, char *argv[]) {
   float checksum = 0.0f;
   for (int i = 0; i < cfg.iters; i++) {
     CUDA_CHECK(cudaEventRecord(start));
-    cmhsa_forward_cuda(Q, K, V, out, workspace, dims, cuda_conf);
+    cmhsa_forward_cuda(Q, K, V, out, workspace, dims);
     CUDA_CHECK(cudaEventRecord(end));
     CUDA_CHECK(cudaEventSynchronize(end));
 

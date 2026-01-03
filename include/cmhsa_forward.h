@@ -95,41 +95,13 @@ void cmhsa_forward_cpu(
 // CUDA Implementation of Multi-Head Self-Attention
 // ============================================================================
 
-typedef struct {
-  dim3 threads_per_block;
-  dim3 number_of_blocks;
-  size_t total_threads;
-} CudaConfig;
+// Returns the workspace size in bytes required for the CUDA kernel.
+// Caller should allocate this much memory and pass it to cmhsa_forward_cuda.
+size_t cmhsa_get_workspace_size(const AttentionDims dims);
 
-static inline CudaConfig make_cuda_config(const AttentionDims dims,
-                                          const dim3 threads_per_block) {
-  // Swapped 3D mapping:
-  // x dimension: queries/seq_len (supports up to 1024 threads)
-  // y dimension: heads
-  // z dimension: batch (typically small)
-  size_t blocks_x =
-      (dims.seq_len + threads_per_block.x - 1) / threads_per_block.x;
-  size_t blocks_y =
-      (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
-  size_t blocks_z =
-      (dims.batch + threads_per_block.z - 1) / threads_per_block.z;
-
-  dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
-
-  size_t total_threads =
-      (blocks_x * blocks_y * blocks_z) *
-      (threads_per_block.x * threads_per_block.y * threads_per_block.z);
-
-  CudaConfig config;
-  config.threads_per_block = threads_per_block;
-  config.number_of_blocks = number_of_blocks;
-  config.total_threads = total_threads;
-  return config;
-}
-
+// CUDA forward pass - computes thread/block config internally
 void cmhsa_forward_cuda(const float *RESTRICT Q, const float *RESTRICT K,
                         const float *RESTRICT V, float *RESTRICT out,
-                        float *RESTRICT workspace, const AttentionDims dims,
-                        const CudaConfig config);
+                        float *RESTRICT workspace, const AttentionDims dims);
 
 #endif
