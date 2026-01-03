@@ -60,27 +60,22 @@ int main(int argc, char *argv[]) {
   const size_t qkv_size =
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
-  // Allocate CPU memory
-  float *Q_host = NULL, *K_host = NULL, *V_host = NULL, *out_host = NULL;
-  ALIGNED_ALLOC_FLOAT(Q_host, qkv_size);
-  ALIGNED_ALLOC_FLOAT(K_host, qkv_size);
-  ALIGNED_ALLOC_FLOAT(V_host, qkv_size);
-  ALIGNED_ALLOC_FLOAT(out_host, qkv_size);
-  Q_host = (float *)ASSUME_ALIGNED(Q_host, ALIGNMENT);
-  K_host = (float *)ASSUME_ALIGNED(K_host, ALIGNMENT);
-  V_host = (float *)ASSUME_ALIGNED(V_host, ALIGNMENT);
-  out_host = (float *)ASSUME_ALIGNED(out_host, ALIGNMENT);
-
-  // Allocate GPU memory
-  float *Q_dev, *K_dev, *V_dev, *out_dev;
-  CUDA_CHECK(cudaMalloc(&Q_dev, qkv_size * sizeof(float)));
-  CUDA_CHECK(cudaMalloc(&K_dev, qkv_size * sizeof(float)));
-  CUDA_CHECK(cudaMalloc(&V_dev, qkv_size * sizeof(float)));
-  CUDA_CHECK(cudaMalloc(&out_dev, qkv_size * sizeof(float)));
+  // Allocate CPU tensors (same as CPU version)
+  struct Tensors t;
+  if (allocate_tensors(&t, qkv_size, 0) != 0) {
+    return 1;
+  }
 
   // Initialize with random values (CPU)
-  init_random_tensors(Q_host, K_host, V_host, out_host, cfg.batch, cfg.n_heads,
-                      cfg.seq_len, head_dim_padded, cfg.seed);
+  init_random_tensors(t.Q, t.K, t.V, t.out, cfg.batch, cfg.n_heads, cfg.seq_len,
+                      head_dim_padded, cfg.seed);
+
+  // Allocate GPU memory
+  float *Q_device, *K_device, *V_device, *out_device;
+  CUDA_CHECK(cudaMalloc(&Q_device, qkv_size * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&K_device, qkv_size * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&V_device, qkv_size * sizeof(float)));
+  CUDA_CHECK(cudaMalloc(&out_device, qkv_size * sizeof(float)));
 
   // Allocate workspace using kernel's size query
   size_t workspace_size = cmhsa_get_workspace_size(dims);
@@ -92,23 +87,24 @@ int main(int argc, char *argv[]) {
   }
 
   // Copy data from host to device
-  CUDA_CHECK(cudaMemcpy(Q_dev, Q_host, qkv_size * sizeof(float),
+  CUDA_CHECK(cudaMemcpy(Q_device, t.Q, qkv_size * sizeof(float),
                         cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(K_dev, K_host, qkv_size * sizeof(float),
+  CUDA_CHECK(cudaMemcpy(K_device, t.K, qkv_size * sizeof(float),
                         cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(V_dev, V_host, qkv_size * sizeof(float),
+  CUDA_CHECK(cudaMemcpy(V_device, t.V, qkv_size * sizeof(float),
                         cudaMemcpyHostToDevice));
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
-    VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, Q_host[d]);
+    VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, t.Q[d]);
   }
 
   printf("\nRunning attention forward pass...\n");
 
   // Warm-up runs
   for (int i = 0; i < cfg.warmup; i++) {
-    cmhsa_forward_cuda(Q_dev, K_dev, V_dev, out_dev, workspace, dims);
+    cmhsa_forward_cuda(Q_device, K_device, V_device, out_device, workspace,
+                       dims);
   }
 
   // Timed iterations using CUDA events
@@ -120,23 +116,24 @@ int main(int argc, char *argv[]) {
   float checksum = 0.0f;
   for (int i = 0; i < cfg.iters; i++) {
     CUDA_CHECK(cudaEventRecord(start));
-    cmhsa_forward_cuda(Q_dev, K_dev, V_dev, out_dev, workspace, dims);
+    cmhsa_forward_cuda(Q_device, K_device, V_device, out_device, workspace,
+                       dims);
     CUDA_CHECK(cudaEventRecord(end));
     CUDA_CHECK(cudaEventSynchronize(end));
 
     // Copy output back to host for checksum
-    CUDA_CHECK(cudaMemcpy(out_host, out_dev, qkv_size * sizeof(float),
+    CUDA_CHECK(cudaMemcpy(t.out, out_device, qkv_size * sizeof(float),
                           cudaMemcpyDeviceToHost));
 
     float ms;
     CUDA_CHECK(cudaEventElapsedTime(&ms, start, end));
     total_ms += ms;
     if (cfg.head_dim > 0)
-      checksum += out_host[0];
+      checksum += t.out[0];
   }
 
   // Final copy of results to host
-  CUDA_CHECK(cudaMemcpy(out_host, out_dev, qkv_size * sizeof(float),
+  CUDA_CHECK(cudaMemcpy(t.out, out_device, qkv_size * sizeof(float),
                         cudaMemcpyDeviceToHost));
 
   printf("CUDA attention forward (total): %.3f ms\n", total_ms);
@@ -145,12 +142,13 @@ int main(int argc, char *argv[]) {
 
   VERBOSE_PRINT("\nSample output values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
-    VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, out_host[d]);
+    VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, t.out[d]);
   }
 
   // Validation mode: write artifacts for Python
   if (cfg.validate) {
-    struct Outputs outputs = {Q_host, K_host, V_host, out_host, qkv_size, 0, 0};
+    size_t stats_size = cfg.batch * cfg.n_heads * cfg.seq_len;
+    struct Outputs outputs = {t.Q, t.K, t.V, t.out, qkv_size, stats_size, 0};
     write_validation_artifacts(cfg.validate_dir, &cfg, &outputs);
   }
 
@@ -158,14 +156,11 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(end));
   cudaFree(workspace);
-  cudaFree(Q_dev);
-  cudaFree(K_dev);
-  cudaFree(V_dev);
-  cudaFree(out_dev);
-  free(Q_host);
-  free(K_host);
-  free(V_host);
-  free(out_host);
+  cudaFree(Q_device);
+  cudaFree(K_device);
+  cudaFree(V_device);
+  cudaFree(out_device);
+  free_tensors(&t);
 
   printf("\nCompleted successfully!\n");
   return 0;
