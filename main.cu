@@ -61,11 +61,15 @@ int main(int argc, char *argv[]) {
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
   // Allocate CPU memory
-  float *Q_host, *K_host, *V_host, *out_host;
-  Q_host = (float *)malloc(qkv_size * sizeof(float));
-  K_host = (float *)malloc(qkv_size * sizeof(float));
-  V_host = (float *)malloc(qkv_size * sizeof(float));
-  out_host = (float *)malloc(qkv_size * sizeof(float));
+  float *Q_host = NULL, *K_host = NULL, *V_host = NULL, *out_host = NULL;
+  ALIGNED_ALLOC_FLOAT(Q_host, qkv_size);
+  ALIGNED_ALLOC_FLOAT(K_host, qkv_size);
+  ALIGNED_ALLOC_FLOAT(V_host, qkv_size);
+  ALIGNED_ALLOC_FLOAT(out_host, qkv_size);
+  Q_host = (float *)ASSUME_ALIGNED(Q_host, ALIGNMENT);
+  K_host = (float *)ASSUME_ALIGNED(K_host, ALIGNMENT);
+  V_host = (float *)ASSUME_ALIGNED(V_host, ALIGNMENT);
+  out_host = (float *)ASSUME_ALIGNED(out_host, ALIGNMENT);
 
   // Allocate GPU memory
   float *Q_dev, *K_dev, *V_dev, *out_dev;
@@ -75,8 +79,8 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaMalloc(&out_dev, qkv_size * sizeof(float)));
 
   // Initialize with random values (CPU)
-  init_random_tensors(Q_host, K_host, V_host, out_host, cfg.batch, cfg.n_heads, cfg.seq_len,
-                      head_dim_padded, cfg.seed);
+  init_random_tensors(Q_host, K_host, V_host, out_host, cfg.batch, cfg.n_heads,
+                      cfg.seq_len, head_dim_padded, cfg.seed);
 
   // Allocate workspace using kernel's size query
   size_t workspace_size = cmhsa_get_workspace_size(dims);
@@ -88,20 +92,23 @@ int main(int argc, char *argv[]) {
   }
 
   // Copy data from host to device
-  CUDA_CHECK(cudaMemcpy(Q_dev, Q_host, qkv_size * sizeof(float), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(K_dev, K_host, qkv_size * sizeof(float), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(V_dev, V_host, qkv_size * sizeof(float), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(Q_dev, Q_host, qkv_size * sizeof(float),
+                        cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(K_dev, K_host, qkv_size * sizeof(float),
+                        cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(V_dev, V_host, qkv_size * sizeof(float),
+                        cudaMemcpyHostToDevice));
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
-    VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, Q[d]);
+    VERBOSE_PRINT("Q[0][0][0][%zu] = %f\n", d, Q_host[d]);
   }
 
   printf("\nRunning attention forward pass...\n");
 
   // Warm-up runs
   for (int i = 0; i < cfg.warmup; i++) {
-    cmhsa_forward_cuda(Q, K, V, out, workspace, dims);
+    cmhsa_forward_cuda(Q_dev, K_dev, V_dev, out_dev, workspace, dims);
   }
 
   // Timed iterations using CUDA events
@@ -113,16 +120,24 @@ int main(int argc, char *argv[]) {
   float checksum = 0.0f;
   for (int i = 0; i < cfg.iters; i++) {
     CUDA_CHECK(cudaEventRecord(start));
-    cmhsa_forward_cuda(Q, K, V, out, workspace, dims);
+    cmhsa_forward_cuda(Q_dev, K_dev, V_dev, out_dev, workspace, dims);
     CUDA_CHECK(cudaEventRecord(end));
     CUDA_CHECK(cudaEventSynchronize(end));
+
+    // Copy output back to host for checksum
+    CUDA_CHECK(cudaMemcpy(out_host, out_dev, qkv_size * sizeof(float),
+                          cudaMemcpyDeviceToHost));
 
     float ms;
     CUDA_CHECK(cudaEventElapsedTime(&ms, start, end));
     total_ms += ms;
     if (cfg.head_dim > 0)
-      checksum += out[0];
+      checksum += out_host[0];
   }
+
+  // Final copy of results to host
+  CUDA_CHECK(cudaMemcpy(out_host, out_dev, qkv_size * sizeof(float),
+                        cudaMemcpyDeviceToHost));
 
   printf("CUDA attention forward (total): %.3f ms\n", total_ms);
   printf("CUDA attention forward (per-iter): %.6f ms\n", total_ms / cfg.iters);
@@ -130,12 +145,12 @@ int main(int argc, char *argv[]) {
 
   VERBOSE_PRINT("\nSample output values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
-    VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, out[d]);
+    VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, out_host[d]);
   }
 
   // Validation mode: write artifacts for Python
   if (cfg.validate) {
-    struct Outputs outputs = {Q, K, V, out, qkv_size, 0, 0};
+    struct Outputs outputs = {Q_host, K_host, V_host, out_host, qkv_size, 0, 0};
     write_validation_artifacts(cfg.validate_dir, &cfg, &outputs);
   }
 
@@ -143,10 +158,14 @@ int main(int argc, char *argv[]) {
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(end));
   cudaFree(workspace);
-  cudaFree(Q);
-  cudaFree(K);
-  cudaFree(V);
-  cudaFree(out);
+  cudaFree(Q_dev);
+  cudaFree(K_dev);
+  cudaFree(V_dev);
+  cudaFree(out_dev);
+  free(Q_host);
+  free(K_host);
+  free(V_host);
+  free(out_host);
 
   printf("\nCompleted successfully!\n");
   return 0;
