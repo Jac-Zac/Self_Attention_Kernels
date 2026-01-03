@@ -12,8 +12,18 @@
 # Load the cuda module
 module load cuda
 
+# =======================================================
+# Configurable parameters (override via environment)
+# =======================================================
+VERSION="${VERSION:-v1}"
+THREADS="${THREADS:-${SLURM_CPUS_PER_TASK}}"
+BATCH="${BATCH:-4}"
+N_HEADS="${N_HEADS:-8}"
+SEQ_LEN="${SEQ_LEN:-2048}"
+HEAD_DIM="${HEAD_DIM:-128}"
+
 # Compile the code
-make cuda VERSION=v0
+make cuda VERSION=$VERSION
 
 echo "Running GPU benchmark on Orfeo with UV"
 OMP_PLACES=cores
@@ -31,15 +41,6 @@ echo "=== Starting GPU benchmark ==="
 # Check if torch sees the V100
 python -c "import torch; print(f'Using Device: {torch.cuda.get_device_name(0)}')"
 
-# =======================================================
-# Configurable parameters (override via environment)
-# =======================================================
-VERSION="${VERSION:-v0}"
-THREADS="${THREADS:-${SLURM_CPUS_PER_TASK}}"
-BATCH="${BATCH:-4}"
-N_HEADS="${N_HEADS:-16}"
-SEQ_LEN="${SEQ_LEN:-2048}"
-HEAD_DIM="${HEAD_DIM:-128}"
 
 # Setup
 # =======================================================
@@ -65,4 +66,4 @@ srun nsys profile --trace=cuda --stats=true -o "${report_dir_nsys}/${report_file
 echo "Report generated: ${report_dir_nsys}/${report_file}.qdrep"
 
 # Original
-# srun ncu --set full --launch-skip 0 --launch-count 1 --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS
+srun ncu --set full --launch-skip 0 --launch-count 1 --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS

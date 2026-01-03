@@ -67,9 +67,9 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      float *RESTRICT attn_weights, const AttentionDims dims) {
 
   // 3D parallelization with swapped dimensions:
-  // x dimension: queries/seq_len (supports up to 1024 threads)
+  // x dimension: queries/seq_len
   // y dimension: heads
-  // z dimension: batch (typically small, so z's 64-thread limit is fine)
+  // z dimension: batch
   int h = blockIdx.y * blockDim.y + threadIdx.y;
   int b = blockIdx.z * blockDim.z + threadIdx.z;
 
@@ -83,9 +83,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   if (q < seq_len) {
     // Compute triangular workspace offset for this (batch, head, query)
-    // position Each (batch, head) gets a triangular workspace of size seq_len *
-    // (seq_len+1) / 2
-    //
+    // position Each (batch, head) gets a triangular workspace
     // Query position q needs q+1 attention weights (positions 0..q)
     const size_t workspace_per_bh = seq_len * (seq_len + 1) / 2;
 
@@ -104,10 +102,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
     const size_t query_offset = bh_offset + q * head_dim_pad;
 
-    // =====================================================================
     // Step 1: Compute scaled dot-product scores + track max (fused)
-    // Only compute for key_pos <= query_pos (causal mask)
-    // =====================================================================
     float max_score = -FLT_MAX;
     for (size_t key_pos = 0; key_pos <= q; key_pos++) {
       float dot_product = 0.0f;
@@ -123,9 +118,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
       aw[key_pos] = score;
     }
 
-    // ===============================================
     // Step 2: Numerically stable softmax (plain expf)
-    // ===============================================
     float sum_exp = 0.0f;
     for (size_t key_pos = 0; key_pos <= q; key_pos++) {
       float exp_val = expf(aw[key_pos] - max_score);
