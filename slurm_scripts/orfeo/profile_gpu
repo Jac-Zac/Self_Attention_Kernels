@@ -10,7 +10,7 @@
 #SBATCH --job-name=self_attention_gpu
 
 # Load the cuda module
-module load cuda
+# module load cuda
 
 # =======================================================
 # Configurable parameters (override via environment)

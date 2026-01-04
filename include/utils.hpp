@@ -31,6 +31,8 @@ inline void free_outputs(struct Outputs *outputs) {
   outputs->elapsed_ns = 0;
 }
 
+#define CEIL_DIV(a, b) (((a) + (b) - 1) / (b))
+
 // Debug Output
 #ifdef VERBOSE
 #define VERBOSE_PRINT(...) printf(__VA_ARGS__)

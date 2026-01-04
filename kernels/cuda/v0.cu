@@ -1,10 +1,11 @@
 #ifdef USE_CUDA
 #include "../../include/cmhsa_forward.h"
+#include "../../include/utils.hpp"
 #include <cfloat>
 #include <cuda_runtime.h>
 #include <math.h>
 
-// NOTE: Baseline implementation ...
+// NOTE: Baseline implementation
 
 __global__ void
 cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
@@ -17,9 +18,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // z dimension: batch (typically small, so z's 64-thread limit is fine)
   int h = blockIdx.y * blockDim.y + threadIdx.y;
   int b = blockIdx.z * blockDim.z + threadIdx.z;
-
   int q = blockIdx.x * blockDim.x + threadIdx.x;
-  // int q = blockIdx.x * blockDim.x + threadIdx.x;
 
   const size_t batch_size = dims.batch;
   const size_t num_heads = dims.n_heads;

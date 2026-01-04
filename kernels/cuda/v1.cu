@@ -1,10 +1,10 @@
 #ifdef USE_CUDA
 #include "../../include/cmhsa_forward.h"
+#include "../../include/utils.hpp"
 #include <cfloat>
 #include <cuda_runtime.h>
 #include <math.h>
 
-// NOTE:
 // Changes from v0:
 // 1. Loop fusion optimization - 4 loops instead of 6:
 //    - v1: fused max computation with dot product, separate exp loop, then
@@ -12,27 +12,25 @@
 //
 // 2. Simplified early exit check:
 //    - v1: if (q < seq_len)
-//    - Justification: With (512,1,1) thread blocks and exact block counts for
-//    y,z dims, batch and head indices are always valid. Only seq_len can have
-//    extra threads when seq_len is not a multiple of 512.
 //
 // 3. Triangular workspace allocation (50% memory reduction):
 //    - v1: Leverages causal mask triangular pattern
 //          Thread q only needs q+1 attention weights (attends to positions
 //          0..q) Total per (batch,head): sum_{i=1}^{seq_len} i = seq_len *
 //          (seq_len+1) / 2 -> Memory savings: ~50%
+//
+// 4. Fusing batch and n_heads loops
 
 __global__ void
 cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      const float *RESTRICT V, float *RESTRICT out,
                      float *RESTRICT attn_weights, const AttentionDims dims) {
 
-  // 3D parallelization with swapped dimensions:
-  // x dimension: head_dim ...
+  // 2D parallelization with swapped dimensions:
+  // x dimension: query/seq_len
   // y dimension: heads * batch
-  // z dimension: heads * batch
-  int bh = blockIdx.z * blockDim.z + threadIdx.z;
-  int q = blockIdx.y * blockDim.y + threadIdx.y;
+  int bh = blockIdx.y * blockDim.y + threadIdx.y;
+  int q = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (q >= dims.seq_len || bh >= dims.batch * dims.n_heads)
     return;
@@ -40,6 +38,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t num_heads = dims.n_heads;
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
+
   // Efficient 1 / sqrt function call
   const float scale = rsqrtf((float)head_dim);
   const size_t head_dim_pad = dims.head_dim_padded;
@@ -68,8 +67,8 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   const size_t query_offset = bh_offset + q * head_dim_pad;
 
-  // Step 1: Compute scaled dot-product scores + track max (fused)
   float max_score = -FLT_MAX;
+  // Step 1: Compute scaled dot-product scores + track max (fused)
   for (size_t key_pos = 0; key_pos <= q; key_pos++) {
     float dot_product = 0.0f;
     size_t key_offset = bh_offset + key_pos * head_dim_pad;
@@ -80,10 +79,10 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     }
 
     const float score = dot_product * scale;
-    max_score = score > max_score ? score : max_score;
+    max_score = fmaxf(max_score, score);
     aw[key_pos] = score;
   }
-
+  //
   // Step 2: Numerically stable softmax (plain expf)
   float sum_exp = 0.0f;
   for (size_t key_pos = 0; key_pos <= q; key_pos++) {
@@ -114,9 +113,8 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 // ============================================================================
 // Kernel Configuration (version-specific)
 // ============================================================================
-#define THREADS_PER_BLOCK_X 1
-#define THREADS_PER_BLOCK_Y 32
-#define THREADS_PER_BLOCK_Z 1
+#define THREADS_PER_BLOCK_X 32
+#define THREADS_PER_BLOCK_Y 1
 
 // Internal config struct - not exposed in header
 typedef struct {
@@ -126,21 +124,16 @@ typedef struct {
 } CudaConfig;
 
 static CudaConfig make_cuda_config(const AttentionDims dims) {
-  dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y,
-                         THREADS_PER_BLOCK_Z);
+  dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y);
 
-  // 3D mapping: x=1, y=heads, z=batch
-  size_t blocks_x = 1;
-  size_t blocks_y =
-      (dims.seq_len + threads_per_block.y - 1) / threads_per_block.y;
-  size_t blocks_z = (dims.batch * dims.n_heads + threads_per_block.z - 1) /
-                    threads_per_block.z;
+  // 3D mapping: x=queries/seq_len, y=head * batch
+  size_t blocks_x = CEIL_DIV(dims.seq_len, threads_per_block.y);
+  size_t blocks_y = CEIL_DIV(dims.batch * dims.n_heads, threads_per_block.z);
 
-  dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
+  dim3 number_of_blocks(blocks_x, blocks_y);
 
   size_t total_threads =
-      (blocks_x * blocks_y * blocks_z) *
-      (threads_per_block.x * threads_per_block.y * threads_per_block.z);
+      (blocks_x * blocks_y) * (threads_per_block.x * threads_per_block.y);
 
   CudaConfig config;
   config.threads_per_block = threads_per_block;
@@ -166,10 +159,9 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
                                  const AttentionDims dims) {
   CudaConfig config = make_cuda_config(dims);
 
-  VERBOSE_PRINT("CUDA Debug: Thread block (%d,%d,%d), Grid (%d,%d,%d)\n",
+  VERBOSE_PRINT("CUDA Debug: Thread block (%d,%d), Grid (%d,%d)\n",
                 config.threads_per_block.x, config.threads_per_block.y,
-                config.threads_per_block.z, config.number_of_blocks.x,
-                config.number_of_blocks.y, config.number_of_blocks.z);
+                config.number_of_blocks.x, config.number_of_blocks.y);
 
   cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block>>>(
       Q, K, V, out, workspace, dims);
@@ -177,9 +169,8 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   cudaError_t err = cudaDeviceSynchronize();
   if (err != cudaSuccess) {
     fprintf(stderr, "CUDA kernel launch error: %s\n", cudaGetErrorString(err));
-    fprintf(stderr, "Block dimensions: (%d,%d,%d)\n",
-            config.threads_per_block.x, config.threads_per_block.y,
-            config.threads_per_block.z);
+    fprintf(stderr, "Block dimensions: (%d,%d)\n", config.threads_per_block.x,
+            config.threads_per_block.y);
   }
 }
 #else
