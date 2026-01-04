@@ -19,14 +19,6 @@ OPENMP := -fopenmp-simd -fopenmp
 WARN_GCC   := -std=c++20 -Wall -Wextra -Wpedantic -Wno-unknown-pragmas
 WARN_CLANG := -Wall -Wextra -Wpedantic -Wconversion
 
-# Debug/verbose flags
-ifeq ($(DEBUG),1)
-  DEBUG_FLAGS := -DDEBUG -g
-  WARN_GCC   += -fopt-info-all
-  WARN_CLANG += -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
-endif
-VERBOSE_FLAGS := $(if $(filter 1,$(VERBOSE)),-DVERBOSE)
-
 # Select warning set based on compiler
 CXX_WARN := $(if $(filter clang++,$(CXX)),$(WARN_CLANG),$(WARN_GCC))
 
@@ -35,6 +27,15 @@ CXXFLAGS  := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
 # CUDA_ARCH ?= sm_70
 CUDA_ARCH ?= sm_86
 NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -arch=$(CUDA_ARCH) -DUSE_CUDA
+
+# Debug/verbose flags
+ifeq ($(DEBUG),1)
+  DEBUG_FLAGS := -DDEBUG -g
+  WARN_GCC   += -fopt-info-all
+  WARN_CLANG += -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
+	NVCC_FLAGS += -lineinfo
+endif
+VERBOSE_FLAGS := $(if $(filter 1,$(VERBOSE)),-DVERBOSE)
 
 # Discovered kernel versions
 SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
