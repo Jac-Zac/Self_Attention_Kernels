@@ -12,7 +12,6 @@
 //   ASSUME_ALIGNED instead of using direct array indexing - this gives the
 //   compiler clearer aliasing info and alignment guarantees per iteration
 // - More variables marked const for better optimization opportunities
-// - Removed large header block comment (now just function docstring)
 //
 // ============================================================================
 

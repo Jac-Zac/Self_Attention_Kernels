@@ -47,7 +47,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
           float dot_product = 0.0f;
           size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
-#pragma omp simd reduction(+ : dot_product)
           for (size_t d = 0; d < head_dim; d++) {
             dot_product += Q[query_offset + d] * K[key_offset + d];
           }
