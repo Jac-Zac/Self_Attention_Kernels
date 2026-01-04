@@ -28,22 +28,25 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      float *RESTRICT attn_weights, const AttentionDims dims) {
 
   // 3D parallelization with swapped dimensions:
-  // x dimension: queries/seq_len
-  // y dimension: heads
-  // z dimension: batch
-  int h = blockIdx.y * blockDim.y + threadIdx.y;
-  int b = blockIdx.z * blockDim.z + threadIdx.z;
+  // x dimension: head_dim ...
+  // y dimension: heads * batch
+  // z dimension: heads * batch
+  int bh = blockIdx.z * blockDim.z + threadIdx.z;
+  int q = blockIdx.y * blockDim.y + threadIdx.y;
 
-  int q = blockIdx.x * blockDim.x + threadIdx.x;
+  if (q >= dims.seq_len || bh >= dims.batch * dims.n_heads)
+    return;
 
   const size_t num_heads = dims.n_heads;
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
-  const float scale = 1.0f / sqrtf((float)head_dim);
+  // Efficient 1 / sqrt function call
+  const float scale = rsqrtf((float)head_dim);
   const size_t head_dim_pad = dims.head_dim_padded;
 
-  if (q >= seq_len)
-    return;
+  // Map 1D bh back to batch and head for offset calculation
+  const int b = bh / dims.n_heads;
+  const int h = bh % dims.n_heads;
 
   // Compute triangular workspace offset for this (batch, head, query)
   // position Each (batch, head) gets a triangular workspace
@@ -111,8 +114,8 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 // ============================================================================
 // Kernel Configuration (version-specific)
 // ============================================================================
-#define THREADS_PER_BLOCK_X 64
-#define THREADS_PER_BLOCK_Y 1
+#define THREADS_PER_BLOCK_X 1
+#define THREADS_PER_BLOCK_Y 32
 #define THREADS_PER_BLOCK_Z 1
 
 // Internal config struct - not exposed in header
@@ -126,13 +129,12 @@ static CudaConfig make_cuda_config(const AttentionDims dims) {
   dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y,
                          THREADS_PER_BLOCK_Z);
 
-  // 3D mapping: x=queries/seq_len, y=heads, z=batch
-  size_t blocks_x =
-      (dims.seq_len + threads_per_block.x - 1) / threads_per_block.x;
+  // 3D mapping: x=1, y=heads, z=batch
+  size_t blocks_x = 1;
   size_t blocks_y =
-      (dims.n_heads + threads_per_block.y - 1) / threads_per_block.y;
-  size_t blocks_z =
-      (dims.batch + threads_per_block.z - 1) / threads_per_block.z;
+      (dims.seq_len + threads_per_block.y - 1) / threads_per_block.y;
+  size_t blocks_z = (dims.batch * dims.n_heads + threads_per_block.z - 1) /
+                    threads_per_block.z;
 
   dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
 
