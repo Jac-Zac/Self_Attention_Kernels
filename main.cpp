@@ -54,23 +54,29 @@ int main(int argc, char *argv[]) {
     cmhsa_forward_cpu(t.Q, t.K, t.V, t.out, t.workspace, dims);
   }
 
-  // Timed iterations
-  unsigned long long total_ns = 0ULL;
-  float checksum = 0.0f;
+  // ============================================================================
+  // Timing Methodology (for fair comparison with PyTorch)
+  // ============================================================================
+  // We use batch timing: record start time, run all iterations, record end
+  // time. This matches how PyTorch's benchmark times kernels (time.perf_counter
+  // around the entire loop).
+  //
+  // For CPU, this is largely equivalent to per-iteration timing since CPU calls
+  // are synchronous, but we use batch timing for consistency with the CUDA.
+  // ============================================================================
+
+  // Timed iterations (batch timing)
+  struct timespec start, end;
+  NOW(start);
   for (int i = 0; i < cfg.iters; i++) {
-    struct timespec start, end;
-    NOW(start);
     cmhsa_forward_cpu(t.Q, t.K, t.V, t.out, t.workspace, dims);
-    NOW(end);
-    total_ns += ns_diff(start, end);
-    if (cfg.head_dim > 0)
-      checksum += t.out[0];
   }
+  NOW(end);
+  unsigned long long total_ns = ns_diff(start, end);
 
   print_timing("CPU attention forward (total)", total_ns);
   printf("CPU attention forward (per-iter): %.6f s\n",
          (double)total_ns / (double)cfg.iters / 1e9);
-  VERBOSE_PRINT("Checksum (sum of out[0] over iters): %f\n", checksum);
 
   VERBOSE_PRINT("\nSample output values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {

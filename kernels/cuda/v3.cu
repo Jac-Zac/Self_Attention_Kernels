@@ -196,11 +196,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
 
   cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block>>>(
       Q, K, V, out, workspace, dims, dims.head_dim_padded);
-
-  cudaError_t err = cudaDeviceSynchronize();
-  if (err != cudaSuccess) {
-    fprintf(stderr, "CUDA kernel launch error: %s\n", cudaGetErrorString(err));
-  }
 }
 
 #else

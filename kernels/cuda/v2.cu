@@ -246,13 +246,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
 
   cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block>>>(
       Q, K, V, out, workspace, dims);
-
-  cudaError_t err = cudaDeviceSynchronize();
-  if (err != cudaSuccess) {
-    fprintf(stderr, "CUDA kernel launch error: %s\n", cudaGetErrorString(err));
-    fprintf(stderr, "Block dimensions: (%d,%d)\n", config.threads_per_block.x,
-            config.threads_per_block.y);
-  }
 }
 #else
 #error "This file requires USE_CUDA to be defined"

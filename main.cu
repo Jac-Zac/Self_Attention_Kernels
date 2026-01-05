@@ -107,38 +107,41 @@ int main(int argc, char *argv[]) {
                        dims);
   }
 
-  // Timed iterations using CUDA events
+  // ============================================================================
+  // Timing Methodology (for fair comparison with PyTorch)
+  // ============================================================================
+  // We use batch timing: record start event, run all iterations, record end
+  // event, then synchronize once. This matches how PyTorch's benchmark times
+  // kernels (torch.cuda.Event around the entire loop, single sync at end).
+  //
+  // This reflects real-world usage where multiple kernel launches are pipelined
+  // without synchronizing after each one. Per-iteration synchronization would
+  // add artificial overhead not present in production code.
+  // ============================================================================
+
+  // Timed iterations using CUDA events (batch timing)
   cudaEvent_t start, end;
   CUDA_CHECK(cudaEventCreate(&start));
   CUDA_CHECK(cudaEventCreate(&end));
 
-  float total_ms = 0.0f;
-  float checksum = 0.0f;
+  CUDA_CHECK(cudaDeviceSynchronize()); // Ensure warmup is complete
+  CUDA_CHECK(cudaEventRecord(start));
   for (int i = 0; i < cfg.iters; i++) {
-    CUDA_CHECK(cudaEventRecord(start));
     cmhsa_forward_cuda(Q_device, K_device, V_device, out_device, workspace,
                        dims);
-    CUDA_CHECK(cudaEventRecord(end));
-    CUDA_CHECK(cudaEventSynchronize(end));
-
-    // Copy output back to host for checksum
-    CUDA_CHECK(cudaMemcpy(t.out, out_device, qkv_size * sizeof(float),
-                          cudaMemcpyDeviceToHost));
-
-    float ms;
-    CUDA_CHECK(cudaEventElapsedTime(&ms, start, end));
-    total_ms += ms;
-    if (cfg.head_dim > 0)
-      checksum += t.out[0];
   }
+  CUDA_CHECK(cudaEventRecord(end));
+  CUDA_CHECK(cudaEventSynchronize(end));
 
-  // Final copy of results to host
+  float total_ms = 0.0f;
+  CUDA_CHECK(cudaEventElapsedTime(&total_ms, start, end));
+
+  // Copy final output to host (for validation)
   CUDA_CHECK(cudaMemcpy(t.out, out_device, qkv_size * sizeof(float),
                         cudaMemcpyDeviceToHost));
 
   printf("CUDA attention forward (total): %.3f ms\n", total_ms);
   printf("CUDA attention forward (per-iter): %.6f ms\n", total_ms / cfg.iters);
-  VERBOSE_PRINT("Checksum (sum of out[0] over iters): %f\n", checksum);
 
   VERBOSE_PRINT("\nSample output values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {

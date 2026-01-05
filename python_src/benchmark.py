@@ -104,6 +104,11 @@ def bench_torch(
 
     Returns:
         tuple: (output tensor, per-iteration time in seconds)
+
+    Note:
+        For CUDA tensors, we use torch.cuda.Event for accurate GPU timing.
+        This matches the CUDA event timing used in the C++ kernels (main.cu)
+        to ensure a fair apples-to-apples comparison.
     """
     if use_sdpa:
         fn = lambda: F.scaled_dot_product_attention(
@@ -119,13 +124,33 @@ def bench_torch(
             attn = attn.masked_fill(mask, float("-inf"))
             return torch.matmul(F.softmax(attn, dim=-1), V)
 
+    # Warmup iterations
     for _ in range(warmup):
         fn()
-    out = fn()  # ensure at least one call
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        out = fn()
-    return out, (time.perf_counter() - t0) / iters
+
+    # Use CUDA events for GPU timing to measure actual kernel execution time,
+    # not just host-side dispatch overhead. This matches main.cu timing methodology.
+    if Q.device.type == "cuda":
+        torch.cuda.synchronize()  # ensure warmup is complete
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+
+        out = fn()  # ensure out is bound (handles iters=0 edge case)
+        start_event.record()
+        for _ in range(iters):
+            out = fn()
+        end_event.record()
+
+        torch.cuda.synchronize()  # wait for all kernels to complete
+        elapsed_ms = start_event.elapsed_time(end_event)
+        return out, elapsed_ms / 1000.0 / iters
+    else:
+        # CPU timing: use wall-clock time
+        out = fn()  # ensure out is bound (handles iters=0 edge case)
+        t0 = time.perf_counter()
+        for _ in range(iters):
+            out = fn()
+        return out, (time.perf_counter() - t0) / iters
 
 
 def main():

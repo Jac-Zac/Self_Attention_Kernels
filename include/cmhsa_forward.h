@@ -94,12 +94,21 @@ void cmhsa_forward_cpu(
 // ============================================================================
 // CUDA Implementation of Multi-Head Self-Attention
 // ============================================================================
-
+//
+// Synchronization Contract:
+//   These kernel wrappers launch CUDA kernels asynchronously and return
+//   immediately. The caller is responsible for synchronization via:
+//     - cudaDeviceSynchronize()
+//     - cudaStreamSynchronize()
+//     - CUDA events (cudaEventSynchronize)
+//
 // Returns the workspace size in bytes required for the CUDA kernel.
 // Caller should allocate this much memory and pass it to cmhsa_forward_cuda.
 size_t cmhsa_get_workspace_size(const AttentionDims dims);
 
 // CUDA forward pass - computes thread/block config internally
+// NOTE: Kernel launch is asynchronous; caller must synchronize before
+//       reading results or measuring elapsed time.
 void cmhsa_forward_cuda(const float *RESTRICT Q, const float *RESTRICT K,
                         const float *RESTRICT V, float *RESTRICT out,
                         float *RESTRICT workspace, const AttentionDims dims);
