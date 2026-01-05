@@ -5,37 +5,14 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-// Changes from v1:
-// 1. Warp-level parallelism for dot products:
-//    - Each warp (32 threads) collaboratively computes Q·K dot products
-//    - Threads handle strided dimensions: thread i processes {i, i+32, ...}
-//    - Enables coalesced memory access across warp
-//    - Uses warp shuffle intrinsics (__shfl_down_sync) for efficient reduction
-//
-// 2. Grid configuration optimization:
-//    - blockIdx.x now maps directly to query positions (blocks_x = seq_len)
-//
-// 3. Warp reduction primitives:
-//    - warp_reduce_sum: log2(32)=5 steps using shuffle-down
-//    - warp_broadcast: distributes lane 0 result to all lanes
-//
-// Performance impact:
-// - Dot product: parallelism within each query computation
-// - Memory: Coalesced reads for Q, K, V across warp
-// - Tradeoff: Requires warp synchronization overhead
+// Changes from v2:
+// 1. Tiling
+// 2. Shared memory
 
 // Full warp mask for synchronization
 #define WARP_MASK 0xffffffff
 
 __inline__ __device__ float warp_reduce_sum(float val) {
-  // Parallel reduction: log2(32) = 5 steps
-  // Step 1: lanes 0-15 add from lanes 16-31 (offset=16)
-  // Step 2: lanes 0-7  add from lanes 8-15  (offset=8)
-  // Step 3: lanes 0-3  add from lanes 4-7   (offset=4)
-  // Step 4: lanes 0-1  add from lanes 2-3   (offset=2)
-  // Step 5: lane  0    adds from lane  1    (offset=1)
-  // Result: lane 0 holds complete sum
-
   for (int offset = warpSize / 2; offset > 0; offset /= 2) {
     val += __shfl_down_sync(WARP_MASK, val, offset);
   }
@@ -43,13 +20,10 @@ __inline__ __device__ float warp_reduce_sum(float val) {
 }
 
 __inline__ __device__ float warp_broadcast(float val, int src_lane) {
-  // Broadcast value from src_lane to all lanes in warp
   return __shfl_sync(WARP_MASK, val, src_lane);
 }
 
 __inline__ __device__ float warp_reduce_max(float val) {
-  // Parallel reduction for maximum: log2(32) = 5 steps
-  // Each step halves the active threads, comparing and keeping the max
   for (int offset = warpSize / 2; offset > 0; offset /= 2) {
     val = fmaxf(val, __shfl_down_sync(WARP_MASK, val, offset));
   }
@@ -62,10 +36,10 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      float *RESTRICT attn_weights, const AttentionDims dims) {
 
   // 2D parallelization:
-  // x dimension: query position (one block per query)
-  // y dimension: (batch, head) pairs
-  const int bh = blockIdx.y * blockDim.y + threadIdx.y;
-  const int q = blockIdx.x;        // Direct mapping: one block per query
+  // y dimension: query position (one block per query)
+  // z dimension: (batch, head) pairs
+  const int bh = blockIdx.z * blockDim.z + threadIdx.z;
+  const int q = blockIdx.y;        // Direct mapping: one block per query
   const int lane_id = threadIdx.x; // Warp lane ID (0-31)
 
   if (q >= dims.seq_len || bh >= dims.batch * dims.n_heads)
@@ -101,15 +75,11 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     const size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
     // Warp-parallel dot product:
-    // - Thread i processes dimensions: i, i+32, i+64, ...
-    // - Ensures coalesced memory access across the warp
     float dot_partial = 0.0f;
     for (size_t d = lane_id; d < head_dim; d += warpSize) {
       dot_partial += Q[query_offset + d] * K[key_offset + d];
     }
 
-    // Warp reduction: All threads participate, result in lane 0
-    // __shfl_down_sync provides implicit synchronization during reduction
     float dot_product = warp_reduce_sum(dot_partial);
     float score = dot_product * scale;
 
@@ -119,23 +89,17 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     }
   }
 
-  // Why needed: Lane 0 wrote aw[], now ALL lanes will read it
-  // Race condition: Write-After-Read (WAR) hazard without sync
   __syncwarp(WARP_MASK);
 
   // ===========================================================================
   // STEP 2: Parallel max-finding
   // ===========================================================================
-  // Strategy: All threads participate in finding maximum
-  // - Each thread scans strided subset: lane i reads {i, i+32, i+64, ...}
-  // - Warp reduction combines local maxima into global maximum
   float local_max = -FLT_MAX;
   for (size_t key_pos = lane_id; key_pos <= q; key_pos += warpSize) {
     local_max = fmaxf(local_max, aw[key_pos]);
   }
 
   // Warp reduction: Find true maximum across all lanes
-  // After this, lane 0 holds the global max
   float max_score = warp_reduce_max(local_max);
 
   // Broadcast max to all lanes (needed for exp computation)
@@ -144,19 +108,12 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // ===========================================================================
   // STEP 3: Parallel softmax computation
   // ===========================================================================
-  // Strategy: Compute exp(score - max) and sum in parallel
-  // - Numerically stable: subtracting max prevents overflow
-  // - Each thread processes strided subset
-
   float local_sum_exp = 0.0f;
   for (size_t key_pos = lane_id; key_pos <= q; key_pos += warpSize) {
     float exp_val = expf(aw[key_pos] - max_score);
-    aw[key_pos] = exp_val; // Overwrite scores with exp values
+    aw[key_pos] = exp_val;
     local_sum_exp += exp_val;
   }
-
-  // Why needed: All threads wrote to aw[], now lane 0 will reduce sum
-  // Also: Ensures exp values are visible before normalization step
   __syncwarp(WARP_MASK);
 
   // Reduce partial sums to get total
@@ -169,13 +126,9 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // ===========================================================================
   // STEP 4: Parallel normalization
   // ===========================================================================
-  // Strategy: Each thread normalizes its strided subset
-  // Result: aw[] now contains proper probability distribution
   for (size_t key_pos = lane_id; key_pos <= q; key_pos += warpSize) {
     aw[key_pos] *= inv_sum_exp;
   }
-
-  // Why needed: All threads wrote normalized values, now all will read them
   __syncwarp(WARP_MASK);
 
   // ===========================================================================
@@ -190,7 +143,6 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   // Accumulate weighted values
   // Memory access pattern: All threads read same aw[key_pos] (broadcast)
-  // then access strided dimensions of V (coalesced)
   for (size_t key_pos = 0; key_pos <= q; key_pos++) {
     const size_t value_offset = bh_offset + key_pos * head_dim_pad;
     float const normalized_weight = aw[key_pos]; // All threads read same value
@@ -200,7 +152,6 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
       out[output_offset + d] += normalized_weight * V[value_offset + d];
     }
   }
-  // No final syncwarp needed: kernel exit provides implicit synchronization
 }
 
 // ============================================================================
@@ -208,6 +159,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 // ============================================================================
 #define THREADS_PER_BLOCK_X 32 // One full warp per block
 #define THREADS_PER_BLOCK_Y 1
+#define THREADS_PER_BLOCK_Z 1
 
 typedef struct {
   dim3 threads_per_block;
@@ -219,13 +171,15 @@ static CudaConfig make_cuda_config(const AttentionDims dims) {
   dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y);
 
   // 2D grid: x = seq_len (one block per query), y = batch * n_heads
-  size_t blocks_x = dims.seq_len;
-  size_t blocks_y = CEIL_DIV(dims.batch * dims.n_heads, THREADS_PER_BLOCK_Y);
+  size_t blocks_x = 1;
+  size_t blocks_y = dims.seq_len;
+  size_t blocks_z = CEIL_DIV(dims.batch * dims.n_heads, THREADS_PER_BLOCK_Y);
 
   dim3 number_of_blocks(blocks_x, blocks_y);
 
   size_t total_threads =
-      (blocks_x * blocks_y) * (threads_per_block.x * threads_per_block.y);
+      (blocks_x * blocks_y * blocks_z) *
+      (threads_per_block.x * threads_per_block.y * threads_per_block.z);
 
   CudaConfig config;
   config.threads_per_block = threads_per_block;
@@ -249,9 +203,10 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
                                  const AttentionDims dims) {
   CudaConfig config = make_cuda_config(dims);
 
-  VERBOSE_PRINT("CUDA Debug: Thread block (%d,%d), Grid (%d,%d)\n",
+  VERBOSE_PRINT("CUDA Debug: Thread block (%d,%d,%d), Grid (%d,%d,%d)\n",
                 config.threads_per_block.x, config.threads_per_block.y,
-                config.number_of_blocks.x, config.number_of_blocks.y);
+                config.threads_per_block.z config.number_of_blocks.x,
+                config.number_of_blocks.y, config.number_of_blocks.z);
 
   cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block>>>(
       Q, K, V, out, workspace, dims);
@@ -259,8 +214,9 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   cudaError_t err = cudaDeviceSynchronize();
   if (err != cudaSuccess) {
     fprintf(stderr, "CUDA kernel launch error: %s\n", cudaGetErrorString(err));
-    fprintf(stderr, "Block dimensions: (%d,%d)\n", config.threads_per_block.x,
-            config.threads_per_block.y);
+    fprintf(stderr, "Block dimensions: (%d,%d,%d)\n",
+            config.threads_per_block.x, config.threads_per_block.y,
+            config.number_of_blocks.z);
   }
 }
 #else
