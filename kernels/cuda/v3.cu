@@ -9,7 +9,7 @@
 // 1. Tiling
 // 2. Shared memory
 
-// Full warp mask for synchronization
+#define TILE_Q 8
 #define WARP_MASK 0xffffffff
 
 __inline__ __device__ float warp_reduce_sum(float val) {
@@ -36,10 +36,13 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      float *RESTRICT attn_weights, const AttentionDims dims) {
 
   // 2D parallelization:
-  // y dimension: query position (one block per query)
+  // x dimension: lane
+  // y dimension: query position
+  // - (blockIdx.y * blockDim.y): Tile_i position
+  // - (threadIdx.y): Position inside the tile
   // z dimension: (batch, head) pairs
   const int bh = blockIdx.z * blockDim.z + threadIdx.z;
-  const int q = blockIdx.y;        // Direct mapping: one block per query
+  const int q = blockIdx.y * blockDim.y + threadIdx.y;
   const int lane_id = threadIdx.x; // Warp lane ID (0-31)
 
   if (q >= dims.seq_len || bh >= dims.batch * dims.n_heads)
@@ -158,7 +161,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 // Kernel Configuration
 // ============================================================================
 #define THREADS_PER_BLOCK_X 32 // One full warp per block
-#define THREADS_PER_BLOCK_Y 1
+#define THREADS_PER_BLOCK_Y 8
 #define THREADS_PER_BLOCK_Z 1
 
 typedef struct {
@@ -172,10 +175,10 @@ static CudaConfig make_cuda_config(const AttentionDims dims) {
 
   // 2D grid: x = seq_len (one block per query), y = batch * n_heads
   size_t blocks_x = 1;
-  size_t blocks_y = dims.seq_len;
-  size_t blocks_z = CEIL_DIV(dims.batch * dims.n_heads, THREADS_PER_BLOCK_Y);
+  size_t blocks_y = CEIL_DIV(dims.seq_len, THREADS_PER_BLOCK_Y);
+  size_t blocks_z = CEIL_DIV(dims.batch * dims.n_heads, THREADS_PER_BLOCK_Z);
 
-  dim3 number_of_blocks(blocks_x, blocks_y);
+  dim3 number_of_blocks(blocks_x, blocks_y, blocks_z);
 
   size_t total_threads =
       (blocks_x * blocks_y * blocks_z) *
