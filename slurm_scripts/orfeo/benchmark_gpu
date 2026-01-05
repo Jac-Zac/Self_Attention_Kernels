@@ -45,15 +45,19 @@ BENCH_SEED=1337
 BENCH_WARMUP=5
 BENCH_ITERS=25
 
+# Create results directory
+RESULTS_DIR="results"
+mkdir -p "$RESULTS_DIR"
+
 echo "=== Benchmark configuration ==="
 echo "Backend     : ${BENCH_BACKEND}"
-echo "Batch size  : ${BENCH_BATCH}"
 echo "Heads       : ${BENCH_HEADS}"
 echo "Sequence len: ${BENCH_SEQLEN}"
 echo "Head dim    : ${BENCH_HEADDIM}"
 echo "Seed        : ${BENCH_SEED}"
 echo "Warmup iters: ${BENCH_WARMUP}"
 echo "Run iters   : ${BENCH_ITERS}"
+echo "Output file : ${RESULTS_DIR}/benchmark_gpu.csv"
 echo "================================"
 
 # Run benchmark
@@ -66,4 +70,9 @@ make benchmark USE_SRUN=1 \
   BENCH_SEED=${BENCH_SEED} \
   BENCH_WARMUP=${BENCH_WARMUP} \
   BENCH_ITERS=${BENCH_ITERS} \
-  BENCH_THREADS=${SLURM_CPUS_PER_TASK}
+  BENCH_THREADS=${SLURM_CPUS_PER_TASK} \
+  BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_gpu.csv"
+
+echo ""
+echo "=== GPU benchmark complete ==="
+echo "Results: $RESULTS_DIR/benchmark_gpu.csv"
