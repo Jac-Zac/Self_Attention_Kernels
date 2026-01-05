@@ -215,22 +215,33 @@ def main():
         out_ref = out_ref.to(device)
 
         # Validate first kernel
-        assert torch.allclose(
-            first_out_c, out_ref, rtol=args.rtol, atol=args.atol
-        ), f"Validation failed for {extract_version(first_bin)}"
+        assert torch.allclose(first_out_c, out_ref, rtol=args.rtol, atol=args.atol), (
+            f"Validation failed for {extract_version(first_bin)}"
+        )
 
         # Record PyTorch results
         rows.append(
-            {"threads": threads, "version": "pytorch_naive", "time_s": naive_time}
+            {
+                "threads": threads,
+                "version": "pytorch_naive",
+                "time_s": naive_time,
+                "backend": args.backend,
+            }
         )
         rows.append(
-            {"threads": threads, "version": "pytorch_sdpa", "time_s": sdpa_time}
+            {
+                "threads": threads,
+                "version": "pytorch_sdpa",
+                "time_s": sdpa_time,
+                "backend": args.backend,
+            }
         )
         rows.append(
             {
                 "threads": threads,
                 "version": extract_version(first_bin),
                 "time_s": first_time,
+                "backend": args.backend,
             }
         )
 
@@ -254,10 +265,17 @@ def main():
                 c_time = parse_c_time(c_output)
                 _, _, _, _, out_c = load_artifacts(outdir, device=args.device)
 
-            assert torch.allclose(
-                out_c, out_ref, rtol=args.rtol, atol=args.atol
-            ), f"Validation failed for {version}"
-            rows.append({"threads": threads, "version": version, "time_s": c_time})
+            assert torch.allclose(out_c, out_ref, rtol=args.rtol, atol=args.atol), (
+                f"Validation failed for {version}"
+            )
+            rows.append(
+                {
+                    "threads": threads,
+                    "version": version,
+                    "time_s": c_time,
+                    "backend": args.backend,
+                }
+            )
 
         # Print summary for this thread count
         print(f"  pytorch_naive: {naive_time:.6f}s")
@@ -270,7 +288,9 @@ def main():
 
     # Write CSV
     with open(output_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["threads", "version", "time_s"])
+        writer = csv.DictWriter(
+            f, fieldnames=["threads", "version", "time_s", "backend"]
+        )
         writer.writeheader()
         writer.writerows(rows)
 

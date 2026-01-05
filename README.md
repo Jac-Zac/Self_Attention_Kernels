@@ -50,11 +50,13 @@ See `make help` for all options.
 Generate plots locally after downloading benchmark CSV from cluster:
 
 ```bash
-# Auto-detect plot type based on data
+# Auto-detect plot type based on data (single/multi/cuda)
 PYTHONPATH=python_src uv run python -m plot -i results/benchmark.csv
+# Force specific plot type
+PYTHONPATH=python_src uv run python -m plot --backend cuda -i results/cuda_benchmark.csv
 ```
 
-Outputs saved to `results/single_perf.png` or `results/strong_scaling.png`.
+Outputs saved to `results/single_perf.png`, `results/strong_scaling.png`, or `results/cuda_perf.png`.
 
 ## Project Structure
 
@@ -71,6 +73,7 @@ python_src/
     __main__.py       # Auto-detect CLI
     single.py         # Bar plot for single-thread
     multi.py          # Strong scaling plot for multi-thread
+    cuda.py           # Bar plot for CUDA/GPU
     utils.py          # Shared plot utilities
   tests/              # Validation scripts
 main.cpp              # Entry point
