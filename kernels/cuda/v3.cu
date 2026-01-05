@@ -5,23 +5,9 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
-// ============================================================================
-// Changes from v2 to v3:
-// ============================================================================
-// 1. Eliminated workspace allocation for attention weights:
-//    - v3: Recomputes Q·K dot products in each pass (two-pass algorithm)
-//    - Memory savings: No external workspace needed (workspace size = 0)
-//    - Tradeoff: Increased compute (2x dot products) for reduced memory
-//
-// 2. Query tiling with multiple queries per thread block:
-//    - v3: TILE_Q=8 queries processed per block (y-dimension parallelism)
-//    - Grid: blocks_y = ceil(seq_len / TILE_Q) instead of blocks_x = seq_len
-//
-// 3. Algorithm is now fully register-based for attention scores:
-//    - Pass 1: Compute max score for numerical stability
-//    - Pass 2: Compute exp sum and weighted output in one fused pass
-//    - All intermediate values stay in registers, no global memory writes
-// ============================================================================
+// Changes from v2:
+// 1. Tiling
+// 2. Shared memory
 
 #define TILE_Q 8
 #define WARP_MASK 0xffffffff
@@ -44,36 +30,16 @@ __inline__ __device__ float warp_reduce_max(float val) {
   return val;
 }
 
-__inline__ __device__ float warp_qk_dot(const float *RESTRICT Q,
-                                        const float *RESTRICT K,
-                                        size_t q_offset, size_t k_offset,
-                                        size_t head_dim, int lane_id) {
-  float partial = 0.0f;
-  // Strided over head_dim by warp
-  for (size_t d = lane_id; d < head_dim; d += warpSize) {
-    partial += Q[q_offset + d] * K[k_offset + d];
-  }
-
-  // Warp-wide reduction
-  float dot = warp_reduce_sum(partial);
-
-  // IMPORTANT:
-  // - Only lane 0 receives the correct reduced value
-  // - Other lanes get undefined data
-  return dot;
-}
-
-__global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
-                                     const float *RESTRICT K,
-                                     const float *RESTRICT V,
-                                     float *RESTRICT out,
-                                     const AttentionDims dims) {
+__global__ void
+cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
+                     const float *RESTRICT V, float *RESTRICT out,
+                     float *RESTRICT attn_weights, const AttentionDims dims) {
 
   // 2D parallelization:
-  // x dimension: lane within warp (0-31)
-  // y dimension: query position within tile
-  //   - blockIdx.y * TILE_Q: tile start position
-  //   - threadIdx.y: position within tile (0 to TILE_Q-1)
+  // x dimension: lane
+  // y dimension: query position
+  // - (blockIdx.y * blockDim.y): Tile_i position
+  // - (threadIdx.y): Position inside the tile
   // z dimension: (batch, head) pairs
   const int bh = blockIdx.z * blockDim.z + threadIdx.z;
   const int q = blockIdx.y * blockDim.y + threadIdx.y;
@@ -92,93 +58,110 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   const int b = bh / dims.n_heads;
   const int h = bh % dims.n_heads;
 
+  // Triangular workspace: each (batch, head) stores only causal attention
+  // weights Query q needs weights for keys 0..q (total: q+1 weights)
+  const size_t workspace_per_bh = seq_len * (seq_len + 1) / 2;
+  const size_t bh_workspace_offset = (b * num_heads + h) * workspace_per_bh;
+  const size_t triangular_offset = q * (q + 1) / 2;
+
+  float *RESTRICT aw = attn_weights + bh_workspace_offset + triangular_offset;
+
   // Tensor offsets: [batch, head, seq, head_dim]
   const size_t bh_offset =
       b * (num_heads * seq_len * head_dim_pad) + h * (seq_len * head_dim_pad);
   const size_t query_offset = bh_offset + q * head_dim_pad;
 
   // ===========================================================================
-  // PASS 1: Find maximum score for numerical stability
+  // STEP 1: Compute Q·K scores using warp-parallel dot products
   // ===========================================================================
-  // We need max(Q·K) before computing softmax to prevent overflow in exp()
-  // This pass recomputes all dot products to find the maximum
-  float max_score = -FLT_MAX;
-
   for (size_t key_pos = 0; key_pos <= q; key_pos++) {
     const size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
-    float score =
-        warp_qk_dot(Q, K, query_offset, key_offset, head_dim, lane_id) * scale;
+    // Warp-parallel dot product:
+    float dot_partial = 0.0f;
+    for (size_t d = lane_id; d < head_dim; d += warpSize) {
+      dot_partial += Q[query_offset + d] * K[key_offset + d];
+    }
 
-    // Track maximum (only lane 0 has the correct reduced value)
+    float dot_product = warp_reduce_sum(dot_partial);
+    float score = dot_product * scale;
+
+    // Only lane 0 writes the score
     if (lane_id == 0) {
-      max_score = fmaxf(max_score, score);
+      aw[key_pos] = score;
     }
   }
 
-  // Broadcast max to all lanes for use in Pass 2
+  __syncwarp(WARP_MASK);
+
+  // ===========================================================================
+  // STEP 2: Parallel max-finding
+  // ===========================================================================
+  float local_max = -FLT_MAX;
+  for (size_t key_pos = lane_id; key_pos <= q; key_pos += warpSize) {
+    local_max = fmaxf(local_max, aw[key_pos]);
+  }
+
+  // Warp reduction: Find true maximum across all lanes
+  float max_score = warp_reduce_max(local_max);
+
+  // Broadcast max to all lanes (needed for exp computation)
   max_score = warp_broadcast(max_score, 0);
 
   // ===========================================================================
-  // PASS 2: Compute softmax and weighted sum in one fused pass
+  // STEP 3: Parallel softmax computation
   // ===========================================================================
-  // Now we recompute Q·K and simultaneously:
-  // 1. Compute exp(score - max_score) for numerical stability
-  // 2. Accumulate sum of exponentials for normalization
-  // 3. Accumulate weighted output: sum(softmax_weight * V)
+  float local_sum_exp = 0.0f;
+  for (size_t key_pos = lane_id; key_pos <= q; key_pos += warpSize) {
+    float exp_val = expf(aw[key_pos] - max_score);
+    aw[key_pos] = exp_val;
+    local_sum_exp += exp_val;
+  }
+  __syncwarp(WARP_MASK);
 
-  float sum_exp = 0.0f;
+  // Reduce partial sums to get total
+  float sum_exp = warp_reduce_sum(local_sum_exp);
 
-  // Initialize output accumulators in registers (one per dimension this lane
-  // handles) Each lane accumulates for dimensions: lane_id, lane_id+32,
-  // lane_id+64, ... We'll compute unnormalized weighted sum, then divide by
-  // sum_exp at the end
+  // Broadcast sum to all lanes for normalization
+  sum_exp = warp_broadcast(sum_exp, 0);
+  const float inv_sum_exp = 1.0f / sum_exp;
+
+  // ===========================================================================
+  // STEP 4: Parallel normalization
+  // ===========================================================================
+  for (size_t key_pos = lane_id; key_pos <= q; key_pos += warpSize) {
+    aw[key_pos] *= inv_sum_exp;
+  }
+  __syncwarp(WARP_MASK);
+
+  // ===========================================================================
+  // STEP 5: Weighted sum of values (warp-parallel across head_dim)
+  // ===========================================================================
   const size_t output_offset = bh_offset + q * head_dim_pad;
 
-  // Initialize output to zero
+  // Initialize output: Each thread handles strided dimensions
   for (size_t d = lane_id; d < head_dim; d += warpSize) {
     out[output_offset + d] = 0.0f;
   }
 
+  // Accumulate weighted values
+  // Memory access pattern: All threads read same aw[key_pos] (broadcast)
   for (size_t key_pos = 0; key_pos <= q; key_pos++) {
-    const size_t key_offset = bh_offset + key_pos * head_dim_pad;
     const size_t value_offset = bh_offset + key_pos * head_dim_pad;
+    float const normalized_weight = aw[key_pos]; // All threads read same value
 
-    // Recompute Q·K dot product (same as Pass 1)
-    float score =
-        warp_qk_dot(Q, K, query_offset, key_offset, head_dim, lane_id) * scale;
-
-    // Compute exp(score - max) - numerically stable
-    // Broadcast score to all lanes (only lane 0 has correct value after reduce)
-    score = warp_broadcast(score, 0);
-    float exp_score = expf(score - max_score);
-
-    // Accumulate sum for normalization (all lanes track this)
-    sum_exp += exp_score;
-
-    // Accumulate weighted values (unnormalized)
-    // All lanes use same exp_score, each lane handles strided dimensions
+    // Warp-parallel accumulation across head dimensions
     for (size_t d = lane_id; d < head_dim; d += warpSize) {
-      out[output_offset + d] += exp_score * V[value_offset + d];
+      out[output_offset + d] += normalized_weight * V[value_offset + d];
     }
-  }
-
-  // ===========================================================================
-  // FINAL: Normalize output by sum of exponentials
-  // ===========================================================================
-  // out = out / sum_exp to convert from weighted sum to softmax-weighted sum
-  float inv_sum_exp = 1.0f / sum_exp;
-
-  for (size_t d = lane_id; d < head_dim; d += warpSize) {
-    out[output_offset + d] *= inv_sum_exp;
   }
 }
 
 // ============================================================================
 // Kernel Configuration
 // ============================================================================
-#define THREADS_PER_BLOCK_X 32     // One full warp per query
-#define THREADS_PER_BLOCK_Y TILE_Q // TILE_Q queries per block
+#define THREADS_PER_BLOCK_X 32 // One full warp per block
+#define THREADS_PER_BLOCK_Y 8
 #define THREADS_PER_BLOCK_Z 1
 
 typedef struct {
@@ -190,10 +173,7 @@ typedef struct {
 static CudaConfig make_cuda_config(const AttentionDims dims) {
   dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y);
 
-  // Grid dimensions:
-  // x = 1 (unused, warp parallelism is within-block)
-  // y = ceil(seq_len / TILE_Q) query tiles
-  // z = batch * n_heads
+  // 2D grid: x = seq_len (one block per query), y = batch * n_heads
   size_t blocks_x = 1;
   size_t blocks_y = CEIL_DIV(dims.seq_len, THREADS_PER_BLOCK_Y);
   size_t blocks_z = CEIL_DIV(dims.batch * dims.n_heads, THREADS_PER_BLOCK_Z);
@@ -214,11 +194,9 @@ static CudaConfig make_cuda_config(const AttentionDims dims) {
 // ============================================================================
 // Public API
 // ============================================================================
-
-// v3 does not require workspace - all computation is register-based
 size_t cmhsa_get_workspace_size(const AttentionDims dims) {
-  (void)dims; // Unused
-  return 0;
+  const size_t workspace_per_bh = dims.seq_len * (dims.seq_len + 1) / 2;
+  return dims.batch * dims.n_heads * workspace_per_bh * sizeof(float);
 }
 
 __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
@@ -226,17 +204,24 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
                                  const float *RESTRICT V, float *RESTRICT out,
                                  float *RESTRICT workspace,
                                  const AttentionDims dims) {
-  (void)workspace; // Unused in v3 - kept for API compatibility
-
   CudaConfig config = make_cuda_config(dims);
 
   VERBOSE_PRINT("CUDA Debug: Thread block (%d,%d,%d), Grid (%d,%d,%d)\n",
                 config.threads_per_block.x, config.threads_per_block.y,
-                config.threads_per_block.z, config.number_of_blocks.x,
+                config.threads_per_block.z config.number_of_blocks.x,
                 config.number_of_blocks.y, config.number_of_blocks.z);
 
+  // const int sram_size = (THREADS_PER_BLOCK_Y * dims.head_dim * sizeof(float))
+  // + (2 * TILE_K * dims.head_dim * sizeof(float));
+  // cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block,
+  // sram_size>>>( Q, K, V, out, workspace, dims);
+  // NOTE : Perhaps we can also add a check that it doesnt excede the max
+  // cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock,
+  // 0); VERBOSE_PRINT("Max shared memory: %d, requested shared memory: %d \\n",
+  // max_sram_size, sram_size);
+
   cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block>>>(
-      Q, K, V, out, dims);
+      Q, K, V, out, workspace, dims);
 
   cudaError_t err = cudaDeviceSynchronize();
   if (err != cudaSuccess) {
