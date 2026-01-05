@@ -10,6 +10,7 @@
 // 2. Shared memory
 
 #define TILE_Q 8
+// #define TILE_K 32
 #define WARP_MASK 0xffffffff
 
 __inline__ __device__ float warp_reduce_sum(float val) {
@@ -30,6 +31,7 @@ __inline__ __device__ float warp_reduce_max(float val) {
   return val;
 }
 
+// NOTE: I have to change this to go by tiles
 __global__ void
 cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      const float *RESTRICT V, float *RESTRICT out,
@@ -43,9 +45,10 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // z dimension: (batch, head) pairs
   const int bh = blockIdx.z * blockDim.z + threadIdx.z;
   const int q = blockIdx.y * blockDim.y + threadIdx.y;
+  // const int k_tile = blockIdx.x;
   const int lane_id = threadIdx.x; // Warp lane ID (0-31)
 
-  if (q >= dims.seq_len || bh >= dims.batch * dims.n_heads)
+  if (bh >= dims.batch * dims.n_heads)
     return;
 
   const size_t num_heads = dims.n_heads;
@@ -58,6 +61,13 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   const int b = bh / dims.n_heads;
   const int h = bh % dims.n_heads;
 
+  // extern __shared__ float smem[];
+
+  // // Load the shared memory
+  // extern __shared__ float smem[];
+  // float *Q_s = smem; // TILE_Q x head_dim
+  // float *K_s = Q_s + TILE_Q * head_dim; // TILE_K x head_dim
+
   // Triangular workspace: each (batch, head) stores only causal attention
   // weights Query q needs weights for keys 0..q (total: q+1 weights)
   const size_t workspace_per_bh = seq_len * (seq_len + 1) / 2;
@@ -69,7 +79,8 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // Tensor offsets: [batch, head, seq, head_dim]
   const size_t bh_offset =
       b * (num_heads * seq_len * head_dim_pad) + h * (seq_len * head_dim_pad);
-  const size_t query_offset = bh_offset + q * head_dim_pad;
+  const size_t key_offset = bh_offset + q * head_dim_pad;
+  const size_t query_offset = key_offset;
 
   // ===========================================================================
   // STEP 1: Compute Q·K scores using warp-parallel dot products
@@ -161,7 +172,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 // Kernel Configuration
 // ============================================================================
 #define THREADS_PER_BLOCK_X 32 // One full warp per block
-#define THREADS_PER_BLOCK_Y 8
+#define THREADS_PER_BLOCK_Y TILE_Q
 #define THREADS_PER_BLOCK_Z 1
 
 typedef struct {
@@ -174,6 +185,7 @@ static CudaConfig make_cuda_config(const AttentionDims dims) {
   dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y);
 
   // 2D grid: x = seq_len (one block per query), y = batch * n_heads
+  // size_t blocks_x = CEIL_DIV(dims.seq_len, TILE_K);
   size_t blocks_x = 1;
   size_t blocks_y = CEIL_DIV(dims.seq_len, THREADS_PER_BLOCK_Y);
   size_t blocks_z = CEIL_DIV(dims.batch * dims.n_heads, THREADS_PER_BLOCK_Z);
@@ -208,20 +220,24 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
 
   VERBOSE_PRINT("CUDA Debug: Thread block (%d,%d,%d), Grid (%d,%d,%d)\n",
                 config.threads_per_block.x, config.threads_per_block.y,
-                config.threads_per_block.z config.number_of_blocks.x,
+                config.threads_per_block.z, config.number_of_blocks.x,
                 config.number_of_blocks.y, config.number_of_blocks.z);
 
-  // const int sram_size = (THREADS_PER_BLOCK_Y * dims.head_dim * sizeof(float))
-  // + (2 * TILE_K * dims.head_dim * sizeof(float));
-  // cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block,
-  // sram_size>>>( Q, K, V, out, workspace, dims);
-  // NOTE : Perhaps we can also add a check that it doesnt excede the max
-  // cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock,
-  // 0); VERBOSE_PRINT("Max shared memory: %d, requested shared memory: %d \\n",
-  // max_sram_size, sram_size);
+  int max_sram_size;
+  cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
+  const int sram_size = (THREADS_PER_BLOCK_Y * dims.head_dim * sizeof(float));
+  VERBOSE_PRINT("Max shared memory: %d, requested shared memory: %d \\n",
+                max_sram_size, sram_size);
 
-  cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block>>>(
-      Q, K, V, out, workspace, dims);
+  if (sram_size > max_sram_size) {
+    printf(
+        "Max shared memory: %d, is less then requested shared memory: %d \\n",
+        max_sram_size, sram_size);
+    return;
+  }
+
+  cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block,
+                         sram_size>>>(Q, K, V, out, workspace, dims);
 
   cudaError_t err = cudaDeviceSynchronize();
   if (err != cudaSuccess) {
