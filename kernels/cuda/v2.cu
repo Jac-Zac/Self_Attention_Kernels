@@ -23,6 +23,9 @@
 // - Dot product: parallelism within each query computation
 // - Memory: Coalesced reads for Q, K, V across warp
 // - Tradeoff: Requires warp synchronization overhead
+//
+// NOTE: o allow coalescing the threads within a warp have to access consecutive
+// addresses, but the accesses don’t have to be consecutive within-warp.
 
 // Full warp mask for synchronization
 #define WARP_MASK 0xffffffff
@@ -167,19 +170,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   const float inv_sum_exp = 1.0f / sum_exp;
 
   // ===========================================================================
-  // STEP 4: Parallel normalization
-  // ===========================================================================
-  // Strategy: Each thread normalizes its strided subset
-  // Result: aw[] now contains proper probability distribution
-  for (size_t key_pos = lane_id; key_pos <= q; key_pos += warpSize) {
-    aw[key_pos] *= inv_sum_exp;
-  }
-
-  // Why needed: All threads wrote normalized values, now all will read them
-  __syncwarp(WARP_MASK);
-
-  // ===========================================================================
-  // STEP 5: Weighted sum of values (warp-parallel across head_dim)
+  // STEP 4: Weighted sum of values (warp-parallel across head_dim)
   // ===========================================================================
   const size_t output_offset = bh_offset + q * head_dim_pad;
 
@@ -193,7 +184,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // then access strided dimensions of V (coalesced)
   for (size_t key_pos = 0; key_pos <= q; key_pos++) {
     const size_t value_offset = bh_offset + key_pos * head_dim_pad;
-    float const normalized_weight = aw[key_pos]; // All threads read same value
+    float const normalized_weight = aw[key_pos] * inv_sum_exp;
 
     // Warp-parallel accumulation across head dimensions
     for (size_t d = lane_id; d < head_dim; d += warpSize) {

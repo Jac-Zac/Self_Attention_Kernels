@@ -35,6 +35,13 @@
 I initially tried malloc Managed but for some reason even though I coundn't really see it clearly from the nsyight system the results were absolutly atrocious. 
 Therefore i quickly switched to a direct allocation on the gpu with CudaMalloc and CudaMemcopy.
 
+- v2 Added coalasced memory access
+
+- v3 I was told to add this: --use_fast_math
+Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster
+
+
+
 [To be completed in next sections]
 
 = Performance Analysis and Results

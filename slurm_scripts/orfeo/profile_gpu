@@ -22,6 +22,8 @@ N_HEADS="${N_HEADS:-8}"
 # SEQ_LEN="${SEQ_LEN:-2048}"
 SEQ_LEN="${SEQ_LEN:-1024}"
 HEAD_DIM="${HEAD_DIM:-128}"
+WARMUP="${WARMUP:-3}"
+ITERS="${ITERS:-5}"
 
 # Compile the code
 make cuda VERSION=$VERSION DEBUG=1
@@ -46,7 +48,7 @@ python -c "import torch; print(f'Using Device: {torch.cuda.get_device_name(0)}')
 # Setup
 # =======================================================
 EXEC="./cmhsa.out"
-ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads 12 --warmup 3 --iters 5"
+ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads 12 --warmup ${WARMUP} --iters ${ITERS}"
 # ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads ${THREADS}"
 
 # Define the directory to store reports
@@ -68,4 +70,4 @@ report_file="report_${timestamp}"
 echo "Report generated: ${report_dir_nsys}/${report_file}.qdrep"
 
 # Original
-ncu --set full --launch-skip 0 --launch-count 1 --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS
+ncu --set full --launch-skip ${WARMUP} --launch-count ${ITERS} --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS
