@@ -47,6 +47,15 @@ __inline__ __device__ float warp_broadcast(float val, int src_lane) {
   return __shfl_sync(WARP_MASK, val, src_lane);
 }
 
+__inline__ __device__ float warp_reduce_max(float val) {
+  // Parallel reduction for maximum: log2(32) = 5 steps
+  // Each step halves the active threads, comparing and keeping the max
+  for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+    val = fmaxf(val, __shfl_down_sync(WARP_MASK, val, offset));
+  }
+  return val;
+}
+
 __global__ void
 cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      const float *RESTRICT V, float *RESTRICT out,
@@ -111,6 +120,9 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     }
   }
 
+  // No __syncwarp() needed here: lane 0 writes aw[], then lane 0 reads aw[]
+  // Same-thread operations are sequentially consistent in CUDA memory model
+
   // Broadcast max_score to all lanes for softmax computation
   max_score = warp_broadcast(max_score, 0);
 
@@ -125,6 +137,10 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
       sum_exp += exp_val;
     }
   }
+
+  // __syncwarp() REQUIRED: lane 0 writes aw[], then ALL lanes read aw[] in step
+  // 3 Cross-thread data dependency (RAW hazard) requires explicit sync warp
+  __syncwarp(WARP_MASK);
 
   // Broadcast sum_exp to all lanes for normalization
   sum_exp = warp_broadcast(sum_exp, 0);
@@ -143,13 +159,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // Accumulate weighted values
   for (size_t key_pos = 0; key_pos <= q; key_pos++) {
     const size_t value_offset = bh_offset + key_pos * head_dim_pad;
-
-    // Lane 0 reads the normalized weight, then broadcasts to all
-    float normalized_weight;
-    if (lane_id == 0) {
-      normalized_weight = aw[key_pos] * inv_sum_exp;
-    }
-    normalized_weight = warp_broadcast(normalized_weight, 0);
+    float const normalized_weight = aw[key_pos] * inv_sum_exp;
 
     // All threads accumulate their portion of output
     for (size_t d = lane_id; d < head_dim; d += warpSize) {
