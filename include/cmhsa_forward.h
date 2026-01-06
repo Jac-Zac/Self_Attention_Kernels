@@ -3,6 +3,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// ============================================================================
+// Query tile size for tiled attention kernels (multi_thread/v1, v2, ...)
+// ============================================================================
+// Kernels that use query tiling need workspace of size:
+//   threads * TILE_Q * seq_len_padded floats
+// Non-tiled kernels (single_thread/*, multi_thread/v0) only need:
+//   threads * seq_len_padded floats
+// ============================================================================
+#ifndef TILE_Q
+#define TILE_Q 8
+#endif
+
 // Logical-to-padded dimension helpers
 // These functions compute padded dimensions
 static inline size_t pad_head_dim(size_t head_dim) {

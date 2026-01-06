@@ -3,160 +3,127 @@
 #include <math.h>
 #include <omp.h>
 #include <stdlib.h>
-#include <string.h>
 
 // ============================================================================
-// v3: Query-block tiling with shared K/V access
+// Multi-threaded Causal Multi-Head Self-Attention - v1
+// ============================================================================
 //
-// Strategy: Process queries in blocks. For each query block, we iterate over
-// key positions once, computing scores for ALL queries in the block that need
-// that key (due to causal masking). This improves K/V cache reuse.
+// Improvement over v0:
+// - Query tiling: process queries in blocks of TILE_Q
+// - Changes parallelization from collapse(3) to collapse(2)
+// - Each thread processes all queries in a (batch, head) pair in tiles
+// - Prepares structure for K/V cache reuse optimization in v2
 //
-// Key insight from VTune profiling:
-// - Memory Bound is 43.6% (L3 Bound 18.5%, FB Full 51.4%)
-// - L1-dcache-load-misses: 27.44%
-// - Tiling improves cache locality by keeping K/V rows hot across queries
+// The algorithm per query remains identical to v0 (3-pass softmax).
+// The only change is the loop structure for processing multiple queries.
 //
-// Memory layout for workspace per thread:
-//   - scores[TR][seq_len_padded]: attention scores for TR queries
+// Parallelization: collapse(2) over batch x heads, sequential tiles over queries
+// Workspace: uses shared attn_base (thread_id * TILE_Q * seq_len_padded)
 // ============================================================================
 
-// Query block size - number of queries processed together
-// Workspace per thread: TR * seq_len_padded * sizeof(float)
-#define TR 8
+// Number of queries processed per tile
+// Workspace per thread: TILE_Q * seq_len_padded floats
+#ifndef TILE_Q
+#define TILE_Q 8
+#endif
 
+/**
+ * Causal Multi-Head Self-Attention forward pass (multi-threaded CPU)
+ *
+ * Computes: out = softmax(Q K^T / sqrt(d)) V with causal masking
+ *
+ * @param Q         Query tensor [B, H, S, D] (row-major, D padded)
+ * @param K         Key tensor [B, H, S, D]
+ * @param V         Value tensor [B, H, S, D]
+ * @param out       Output tensor [B, H, S, D]
+ * @param attn_base Workspace [threads * TILE_Q * seq_len_padded]
+ * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
+ */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT attn_base, const AttentionDims dims) {
 
-  (void)attn_base; // unused in this version
+  const size_t batch_size = dims.batch;
+  const size_t num_heads = dims.n_heads;
+  const size_t seq_len = dims.seq_len;
+  const size_t head_dim = dims.head_dim;
+  const float scale = 1.0f / sqrtf((float)head_dim);
+  const size_t head_dim_pad = dims.head_dim_padded;
+  const size_t seq_len_padded = dims.seq_len_padded;
 
-  const size_t B = dims.batch;
-  const size_t H = dims.n_heads;
-  const size_t S = dims.seq_len;
-  const size_t D = dims.head_dim;
-  const size_t D_pad = dims.head_dim_padded;
-  const size_t S_pad = dims.seq_len_padded;
-  const float scale = 1.0f / sqrtf((float)D);
+// Parallelize over batch x heads (each thread handles all queries for one head)
+#pragma omp parallel for collapse(2)
+  for (size_t b = 0; b < batch_size; b++) {
+    for (size_t h = 0; h < num_heads; h++) {
 
-  const float *RESTRICT Q_al = (const float *)ASSUME_ALIGNED(Q, ALIGNMENT);
-  const float *RESTRICT K_al = (const float *)ASSUME_ALIGNED(K, ALIGNMENT);
-  const float *RESTRICT V_al = (const float *)ASSUME_ALIGNED(V, ALIGNMENT);
-  float *RESTRICT out_al = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
+      // Each thread gets its own scratch space for TILE_Q rows of attention weights
+      size_t thread_id = (size_t)omp_get_thread_num();
+      float *aw_base = attn_base + thread_id * TILE_Q * seq_len_padded;
 
-#pragma omp parallel
-  {
-    // Per-thread workspace for TR query rows of scores
-    float *RESTRICT scores = NULL;
-    ALIGNED_ALLOC_FLOAT(scores, TR * S_pad);
-    scores = (float *)ASSUME_ALIGNED(scores, ALIGNMENT);
+      // Base offset for current batch and head: [b, h, :, :]
+      size_t bh_offset = b * (num_heads * seq_len * head_dim_pad) +
+                         h * (seq_len * head_dim_pad);
 
-    // Per-query stats (small arrays, stay in registers/L1)
-    float row_max[TR];
-    float row_sum[TR];
+      // Process queries in tiles of TILE_Q
+      for (size_t qi_base = 0; qi_base < seq_len; qi_base += TILE_Q) {
+        size_t qi_end = (qi_base + TILE_Q < seq_len) ? qi_base + TILE_Q : seq_len;
 
-#pragma omp for collapse(2)
-    for (size_t b = 0; b < B; b++) {
-      for (size_t h = 0; h < H; h++) {
+        // Process each query in this tile (same algorithm as v0)
+        for (size_t query_pos = qi_base; query_pos < qi_end; query_pos++) {
+          size_t tile_idx = query_pos - qi_base;
+          float *aw = aw_base + tile_idx * seq_len_padded;
 
-        const size_t bh_off = (b * H + h) * S * D_pad;
+          size_t query_offset = bh_offset + query_pos * head_dim_pad;
 
-        // Process queries in blocks of TR
-        for (size_t qi_base = 0; qi_base < S; qi_base += TR) {
-          const size_t qi_end = (qi_base + TR < S) ? qi_base + TR : S;
-          const size_t num_queries = qi_end - qi_base;
+          // Track max score while computing dot products (fused pass)
+          float max_score = -FLT_MAX;
 
-          // Initialize per-query stats
-          for (size_t i = 0; i < num_queries; i++) {
-            row_max[i] = -FLT_MAX;
-          }
+          // Step 1: Compute scaled dot-product scores + track max
+          // Only compute for key_pos <= query_pos (causal mask)
+          for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+            float dot_product = 0.0f;
+            size_t key_offset = bh_offset + key_pos * head_dim_pad;
 
-          // =================================================================
-          // Pass 1: Compute scores for all queries in this block
-          // Load each K row once, compute dot product with all relevant Q rows
-          // =================================================================
-          const size_t max_key = qi_end - 1; // Last query needs keys 0..max_key
-
-          for (size_t kj = 0; kj <= max_key; kj++) {
-            const float *RESTRICT k_row = K_al + bh_off + kj * D_pad;
-            k_row = (const float *)ASSUME_ALIGNED(k_row, ALIGNMENT);
-
-            // Which queries in this block need this key?
-            // Causal: query qi needs key kj if kj <= qi
-            const size_t qi_start = (kj > qi_base) ? kj : qi_base;
-
-            for (size_t qi = qi_start; qi < qi_end; qi++) {
-              const size_t i = qi - qi_base;
-              const float *RESTRICT q_row = Q_al + bh_off + qi * D_pad;
-              q_row = (const float *)ASSUME_ALIGNED(q_row, ALIGNMENT);
-
-              float dot = 0.0f;
-              for (size_t d = 0; d < D; d++) {
-                dot += q_row[d] * k_row[d];
-              }
-
-              const float score = dot * scale;
-              scores[i * S_pad + kj] = score;
-              row_max[i] = score > row_max[i] ? score : row_max[i];
+            // Dot product: Q[query_pos] . K[key_pos]
+            for (size_t d = 0; d < head_dim; d++) {
+              dot_product += Q[query_offset + d] * K[key_offset + d];
             }
+
+            float score = dot_product * scale;
+            max_score = score > max_score ? score : max_score;
+            aw[key_pos] = score;
           }
 
-          // =================================================================
-          // Pass 2: Softmax - compute exp and normalize
-          // =================================================================
-          for (size_t i = 0; i < num_queries; i++) {
-            const size_t qi = qi_base + i;
-            const size_t num_keys = qi + 1;
-            float *RESTRICT row_scores = scores + i * S_pad;
-            float sum = 0.0f;
-
-            for (size_t kj = 0; kj < num_keys; kj++) {
-              const float exp_val = expf(row_scores[kj] - row_max[i]);
-              row_scores[kj] = exp_val;
-              sum += exp_val;
-            }
-            row_sum[i] = 1.0f / sum; // Store inverse for multiplication
+          // Step 2: Numerically stable softmax
+          // exp(score - max) prevents overflow
+          float sum_exp = 0.0f;
+          for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+            float exp_val = expf(aw[key_pos] - max_score);
+            aw[key_pos] = exp_val;
+            sum_exp += exp_val;
           }
 
-          // =================================================================
-          // Pass 3: Weighted sum of V
-          // Load each V row once, accumulate to all relevant output rows
-          // =================================================================
+          // Step 3: Weighted sum of values
+          // Normalize inline using multiplication by inverse
+          size_t output_offset = bh_offset + query_pos * head_dim_pad;
+          const float inv_sum_exp = 1.0f / sum_exp;
 
-          // Initialize outputs for this block to zero
-          for (size_t i = 0; i < num_queries; i++) {
-            const size_t qi = qi_base + i;
-            float *RESTRICT out_row = out_al + bh_off + qi * D_pad;
-            out_row = (float *)ASSUME_ALIGNED(out_row, ALIGNMENT);
-
-            for (size_t d = 0; d < D; d++) {
-              out_row[d] = 0.0f;
-            }
+          // Initialize output for this query position
+          for (size_t d = 0; d < head_dim; d++) {
+            out[output_offset + d] = 0.0f;
           }
 
-          // Accumulate weighted V rows
-          for (size_t kj = 0; kj <= max_key; kj++) {
-            const float *RESTRICT v_row = V_al + bh_off + kj * D_pad;
-            v_row = (const float *)ASSUME_ALIGNED(v_row, ALIGNMENT);
+          // Accumulate: out[query_pos] = sum(softmax[key_pos] * V[key_pos])
+          for (size_t key_pos = 0; key_pos <= query_pos; key_pos++) {
+            size_t value_offset = bh_offset + key_pos * head_dim_pad;
+            float normalized_weight = aw[key_pos] * inv_sum_exp;
 
-            const size_t qi_start = (kj > qi_base) ? kj : qi_base;
-
-            for (size_t qi = qi_start; qi < qi_end; qi++) {
-              const size_t i = qi - qi_base;
-              // Multiply by inv_sum here (fused normalization)
-              const float weight = scores[i * S_pad + kj] * row_sum[i];
-
-              float *RESTRICT out_row = out_al + bh_off + qi * D_pad;
-              out_row = (float *)ASSUME_ALIGNED(out_row, ALIGNMENT);
-
-              for (size_t d = 0; d < D; d++) {
-                out_row[d] += weight * v_row[d];
-              }
+            for (size_t d = 0; d < head_dim; d++) {
+              out[output_offset + d] += normalized_weight * V[value_offset + d];
             }
           }
         }
       }
     }
-    free(scores);
   }
 }

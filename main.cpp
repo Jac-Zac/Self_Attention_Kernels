@@ -4,6 +4,7 @@
 #include "include/timing.h"
 #include "include/utils.hpp"
 #include <stdio.h>
+#include <string.h>
 
 // Default values resolved at compile time via make
 #ifndef BACKEND
@@ -32,9 +33,19 @@ int main(int argc, char *argv[]) {
   const size_t qkv_size =
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
+  // Workspace size depends on kernel version:
+  // - Non-tiled kernels (single/*, multi/v0): threads * seq_len_padded
+  // - Tiled kernels (multi/v1, v2, ...): threads * TILE_Q * seq_len_padded
+  // We check if this is a tiled multi-threaded kernel by comparing VERSION_STR
+#define IS_TILED_KERNEL                                                        \
+  (strcmp(BACKEND, "multi") == 0 && strcmp(VERSION_STR, "v0") != 0)
+  const size_t tile_factor = IS_TILED_KERNEL ? TILE_Q : 1;
+  const size_t workspace_size = (size_t)threads * tile_factor * seq_len_padded;
+#undef IS_TILED_KERNEL
+
   // Allocate tensors
   struct Tensors t;
-  if (allocate_tensors(&t, qkv_size, (size_t)threads * seq_len_padded) != 0) {
+  if (allocate_tensors(&t, qkv_size, workspace_size) != 0) {
     return 1;
   }
 
