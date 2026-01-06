@@ -32,10 +32,7 @@ int main(int argc, char *argv[]) {
   const size_t qkv_size =
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
-  // NOTE: It is a bit wastfull but usefull for future implementations
-  // Workspace size: always allocate threads * TILE_Q * seq_len_padded
-  // Tiled kernels use the full workspace, non-tiled kernels use a subset
-  const size_t workspace_size = (size_t)threads * TILE_Q * seq_len_padded;
+  const size_t workspace_size = (size_t)threads * seq_len_padded;
 
   // Allocate tensors
   struct Tensors t;
