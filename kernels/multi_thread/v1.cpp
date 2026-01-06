@@ -10,15 +10,12 @@
 //
 // Improvement over v0:
 // - Query tiling: process queries in blocks of TILE_Q
-// - Changes parallelization from collapse(3) to collapse(2)
 // - Each thread processes all queries in a (batch, head) pair in tiles
 // - Prepares structure for K/V cache reuse optimization in v2
 //
-// The algorithm per query remains identical to v0 (3-pass softmax).
-// The only change is the loop structure for processing multiple queries.
 //
-// Parallelization: collapse(2) over batch x heads, sequential tiles over queries
-// Workspace: uses shared attn_base (thread_id * TILE_Q * seq_len_padded)
+// sequential tiles over queries Workspace: uses shared attn_base (thread_id *
+// TILE_Q * seq_len_padded)
 // ============================================================================
 
 // Number of queries processed per tile
@@ -51,27 +48,33 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t head_dim_pad = dims.head_dim_padded;
   const size_t seq_len_padded = dims.seq_len_padded;
 
+  // Add alignment hints for compiler optimization
+  const float *RESTRICT Q_al = (const float *)ASSUME_ALIGNED(Q, ALIGNMENT);
+  const float *RESTRICT K_al = (const float *)ASSUME_ALIGNED(K, ALIGNMENT);
+  const float *RESTRICT V_al = (const float *)ASSUME_ALIGNED(V, ALIGNMENT);
+  float *RESTRICT out_al = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
+
 // Parallelize over batch x heads (each thread handles all queries for one head)
 #pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
-      // Each thread gets its own scratch space for TILE_Q rows of attention weights
+      // Each thread gets its own scratch space for TILE_Q rows of attn_base
       size_t thread_id = (size_t)omp_get_thread_num();
-      float *aw_base = attn_base + thread_id * TILE_Q * seq_len_padded;
+      float *RESTRICT aw_base = attn_base + thread_id * TILE_Q * seq_len_padded;
+      aw_base = (float *)ASSUME_ALIGNED(aw_base, ALIGNMENT);
 
       // Base offset for current batch and head: [b, h, :, :]
       size_t bh_offset = b * (num_heads * seq_len * head_dim_pad) +
                          h * (seq_len * head_dim_pad);
 
       // Process queries in tiles of TILE_Q
-      for (size_t qi_base = 0; qi_base < seq_len; qi_base += TILE_Q) {
-        size_t qi_end = (qi_base + TILE_Q < seq_len) ? qi_base + TILE_Q : seq_len;
+      for (size_t q = 0; q < seq_len; q += TILE_Q) {
 
         // Process each query in this tile (same algorithm as v0)
-        for (size_t query_pos = qi_base; query_pos < qi_end; query_pos++) {
-          size_t tile_idx = query_pos - qi_base;
-          float *aw = aw_base + tile_idx * seq_len_padded;
+        for (size_t i = 0; i < TILE_Q && q + i < seq_len; i++) {
+          size_t query_pos = q + i;
+          float *aw = aw_base + i * seq_len_padded;
 
           size_t query_offset = bh_offset + query_pos * head_dim_pad;
 
@@ -86,7 +89,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
             // Dot product: Q[query_pos] . K[key_pos]
             for (size_t d = 0; d < head_dim; d++) {
-              dot_product += Q[query_offset + d] * K[key_offset + d];
+              dot_product += Q_al[query_offset + d] * K_al[key_offset + d];
             }
 
             float score = dot_product * scale;
@@ -110,7 +113,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
           // Initialize output for this query position
           for (size_t d = 0; d < head_dim; d++) {
-            out[output_offset + d] = 0.0f;
+            out_al[output_offset + d] = 0.0f;
           }
 
           // Accumulate: out[query_pos] = sum(softmax[key_pos] * V[key_pos])
@@ -119,7 +122,8 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
             float normalized_weight = aw[key_pos] * inv_sum_exp;
 
             for (size_t d = 0; d < head_dim; d++) {
-              out[output_offset + d] += normalized_weight * V[value_offset + d];
+              out_al[output_offset + d] +=
+                  normalized_weight * V_al[value_offset + d];
             }
           }
         }

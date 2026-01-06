@@ -6,10 +6,8 @@
 // ============================================================================
 // Query tile size for tiled attention kernels (multi_thread/v1, v2, ...)
 // ============================================================================
-// Kernels that use query tiling need workspace of size:
-//   threads * TILE_Q * seq_len_padded floats
-// Non-tiled kernels (single_thread/*, multi_thread/v0) only need:
-//   threads * seq_len_padded floats
+// Workspace is always allocated as: threads * TILE_Q * seq_len_padded
+// Tiled kernels use the full workspace, non-tiled kernels use a subset.
 // ============================================================================
 #ifndef TILE_Q
 #define TILE_Q 8

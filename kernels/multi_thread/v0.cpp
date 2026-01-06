@@ -53,18 +53,18 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len_padded = dims.seq_len_padded;
 
 // Parallelize over batch × heads (collapse gives more work units)
-#pragma omp parallel for collapse(3)
+#pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
+      // Each thread gets its own scratch space for attention weights
+      size_t thread_id = (size_t)omp_get_thread_num();
+      float *aw = attn_base + thread_id * seq_len_padded;
+
+      // Base offset for current batch and head: [b, h, :, :]
+      size_t bh_offset = b * (num_heads * seq_len * head_dim_pad) +
+                         h * (seq_len * head_dim_pad);
+
       for (size_t query_pos = 0; query_pos < seq_len; query_pos++) {
-
-        // Each thread gets its own scratch space for attention weights
-        size_t thread_id = (size_t)omp_get_thread_num();
-        float *aw = attn_base + thread_id * seq_len_padded;
-
-        // Base offset for current batch and head: [b, h, :, :]
-        size_t bh_offset = b * (num_heads * seq_len * head_dim_pad) +
-                           h * (seq_len * head_dim_pad);
 
         size_t query_offset = bh_offset + query_pos * head_dim_pad;
 
