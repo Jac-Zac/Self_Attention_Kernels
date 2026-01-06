@@ -4,15 +4,6 @@
 #include <omp.h>
 #include <stdlib.h>
 
-static inline float dot_product(const float *RESTRICT a,
-                                const float *RESTRICT b, size_t dim) {
-  float sum = 0.0f;
-  for (size_t d = 0; d < dim; d++) {
-    sum += a[d] * b[d];
-  }
-  return sum;
-}
-
 // ============================================================================
 // Multi-threaded Causal Multi-Head Self-Attention - v1 (Q-Tiled)
 // ============================================================================
@@ -59,9 +50,14 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
       // Base offset into Q/K/V/out for this (batch, head)
       size_t bh_offset = (b * num_heads + h) * seq_len * head_dim_pad;
 
+      // Base pointers for this (batch, head)
+      const float *RESTRICT Q_bh = ASSUME_ALIGNED_FLOAT(Q + bh_offset);
+      const float *RESTRICT K_bh = ASSUME_ALIGNED_FLOAT(K + bh_offset);
+      const float *RESTRICT V_bh = ASSUME_ALIGNED_FLOAT(V + bh_offset);
+      float *RESTRICT out_bh = ASSUME_ALIGNED_FLOAT(out + bh_offset);
+
       // =====================================================================
       // Process queries in tiles of TILE_Q
-      // v0 processes 1 query at a time; v1 processes TILE_Q together
       // =====================================================================
       for (size_t q_tile = 0; q_tile < seq_len; q_tile += TILE_Q) {
         size_t q_end = (q_tile + TILE_Q < seq_len) ? q_tile + TILE_Q : seq_len;
@@ -86,30 +82,37 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         size_t max_key = q_end - 1;
         for (size_t key_pos = 0; key_pos <= max_key; key_pos++) {
           const float *RESTRICT k_row =
-              ASSUME_ALIGNED_FLOAT(K + bh_offset + key_pos * head_dim_pad);
+              ASSUME_ALIGNED_FLOAT(K_bh + key_pos * head_dim_pad);
 
           size_t q_start = (key_pos > q_tile) ? key_pos : q_tile;
 
           for (size_t query_pos = q_start; query_pos < q_end; query_pos++) {
             size_t i = query_pos - q_tile;
             const float *RESTRICT q_row =
-                ASSUME_ALIGNED_FLOAT(Q + bh_offset + query_pos * head_dim_pad);
+                ASSUME_ALIGNED_FLOAT(Q_bh + query_pos * head_dim_pad);
 
-            float score = dot_product(q_row, k_row, head_dim) * scale;
+            // Dot product: Q @ K^T
+            float score = 0.0f;
+            for (size_t d = 0; d < head_dim; d++) {
+              score += q_row[d] * k_row[d];
+            }
+            score *= scale;
+
             scores[i * seq_len_padded + key_pos] = score;
             row_max[i] = score > row_max[i] ? score : row_max[i];
           }
         }
 
         // ===================================================================
-        // Pass 2: Numerically stable softmax (same as v0)
+        // Pass 2: Numerically stable softmax
         // ===================================================================
         for (size_t i = 0; i < num_queries; i++) {
           size_t query_pos = q_tile + i;
           size_t num_keys = query_pos + 1;
-          float *RESTRICT row_scores = scores + i * seq_len_padded;
-          float sum = 0.0f;
+          float *RESTRICT row_scores =
+              ASSUME_ALIGNED_FLOAT(scores + i * seq_len_padded);
 
+          float sum = 0.0f;
           for (size_t key_pos = 0; key_pos < num_keys; key_pos++) {
             float exp_val = expf(row_scores[key_pos] - row_max[i]);
             row_scores[key_pos] = exp_val;
@@ -121,7 +124,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         for (size_t i = 0; i < num_queries; i++) {
           size_t query_pos = q_tile + i;
           float *RESTRICT out_row =
-              ASSUME_ALIGNED_FLOAT(out + bh_offset + query_pos * head_dim_pad);
+              ASSUME_ALIGNED_FLOAT(out_bh + query_pos * head_dim_pad);
 
           for (size_t d = 0; d < head_dim; d++) {
             out_row[d] = 0.0f;
@@ -135,18 +138,17 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // ===================================================================
         for (size_t key_pos = 0; key_pos <= max_key; key_pos++) {
           const float *RESTRICT v_row =
-              ASSUME_ALIGNED_FLOAT(V + bh_offset + key_pos * head_dim_pad);
-
+              ASSUME_ALIGNED_FLOAT(V_bh + key_pos * head_dim_pad);
           size_t q_start = (key_pos > q_tile) ? key_pos : q_tile;
 
           for (size_t query_pos = q_start; query_pos < q_end; query_pos++) {
-
             size_t i = query_pos - q_tile;
             float weight = scores[i * seq_len_padded + key_pos] * row_sum[i];
 
-            float *RESTRICT out_row = ASSUME_ALIGNED_FLOAT(
-                out + bh_offset + query_pos * head_dim_pad);
+            float *RESTRICT out_row =
+                ASSUME_ALIGNED_FLOAT(out_bh + query_pos * head_dim_pad);
 
+            // Weighted accumulation: out += weight * V
             for (size_t d = 0; d < head_dim; d++) {
               out_row[d] += weight * v_row[d];
             }
