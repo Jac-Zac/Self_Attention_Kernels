@@ -5,7 +5,7 @@
 
 // Default tile size (can be overridden via -DTILE_Q=N)
 #ifndef TILE_Q
-#define TILE_Q 16
+#define TILE_Q 32
 #endif
 
 // Logical-to-padded dimension helpers
