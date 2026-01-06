@@ -3,6 +3,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// Default tile size (can be overridden via -DTILE_Q=N)
+#ifndef TILE_Q
+#define TILE_Q 16
+#endif
+
 // Logical-to-padded dimension helpers
 // These functions compute padded dimensions
 static inline size_t pad_head_dim(size_t head_dim) {
@@ -65,16 +70,12 @@ static inline AttentionDims make_attention_dims(size_t batch, size_t n_heads,
 //   For each head h:
 //     1. scores = (Q_h @ K_h^T) * scale
 //     2. probs = softmax(scores)  [numerically stable via softmax_max/lse]
-//     3. out_h = probs @ V_h
-//
-// Parameters:
-//   Q              - Query tensor [batch, n_heads, seq_len, head_dim]
-//   K              - Key tensor [batch, n_heads, seq_len, head_dim]
 //   V              - Value tensor [batch, n_heads, seq_len, head_dim]
 //   out            - Output tensor [batch, n_heads, seq_len, head_dim]
 //   attn_weights   - Workspace base, sized at least
-//                     threads*pad_seq_len(seq_len) floats (multi-thread)
-//                     or 1*pad_seq_len(seq_len) (single-thread)
+//                     TILE_Q * threads*pad_seq_len(seq_len) floats
+//                     (multi-thread) or TILE_Q * 1*pad_seq_len(seq_len)
+//                     (single-thread)
 //   dims           - Dimension specification
 //
 // Note: Internal row strides use pad_head_dim(head_dim). Logical math loops

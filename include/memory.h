@@ -31,5 +31,5 @@ static inline size_t round_up_pow2(size_t x, size_t a) {
 #define ALIGNED_ALLOC_FLOAT(ptr, count)                                        \
   (posix_memalign((void **)&(ptr), ALIGNMENT, sizeof(float) * (count)))
 
-#define ASSUME_ALIGNED_FLOAT(ptr)                                              \
+#define ASSIGNED_ALIGNED_FLOAT(ptr)                                            \
   (ptr = (float *)ASSUME_ALIGNED((ptr), ALIGNMENT))
