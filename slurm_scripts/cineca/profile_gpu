@@ -1,0 +1,58 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
+#SBATCH --partition=boost_usr_prod
+#SBATCH --exclusive
+#SBATCH -A uTS25_Tornator
+#SBATCH -t 00:05:00
+#SBATCH --job-name=self_attention_bench
+
+module load cuda
+
+# =======================================================
+# Configurable parameters (override via environment)
+# =======================================================
+VERSION="${VERSION:-v1}"
+# THREADS="${THREADS:-${SLURM_CPUS_PER_TASK}}"
+BATCH="${BATCH:-2}"
+N_HEADS="${N_HEADS:-8}"
+SEQ_LEN="${SEQ_LEN:-1024}"
+HEAD_DIM="${HEAD_DIM:-128}"
+WARMUP="${WARMUP:-3}"
+ITERS="${ITERS:-5}"
+
+# Compile the code
+make cuda VERSION=$VERSION DEBUG=1
+
+echo "Running GPU benchmark on Orfeo with UV"
+OMP_PLACES=cores
+OMP_PROC_BIND=close
+
+echo "=== Starting GPU benchmark ==="
+# Setup
+# =======================================================
+EXEC="./cmhsa.out"
+ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads 1 --warmup ${WARMUP} --iters ${ITERS}"
+
+# Define the directory to store reports
+report_dir_nsys="reports/nsys"
+report_dir_ncu="reports/ncu"
+
+# Create the directory if it doesn't exist
+mkdir -p "$report_dir_nsys"
+mkdir -p "$report_dir_ncu"
+
+# Generate a unique report file name based on the current timestamp
+timestamp=$(date +"%Y%m%d_%H%M%S")
+report_file="report_${timestamp}"
+
+# Run the nsys profile command and store the report in the specified directory
+srun nsys profile --trace=cuda --stats=true -o "${report_dir_nsys}/${report_file}" $EXEC $ARGS
+
+# Notify the user
+echo "Report generated: ${report_dir_nsys}/${report_file}.qdrep"
+
+# Original
+srun ncu --set full --launch-skip ${WARMUP} --launch-count ${ITERS} --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS

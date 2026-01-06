@@ -2,10 +2,10 @@
 #SBATCH --nodes=1                   # 1 node
 #SBATCH --ntasks=1                  # total MPI tasks across nodes
 #SBATCH --ntasks-per-node=1         # 1 MPI task on the node
-#SBATCH --cpus-per-task=64          # OpenMP threads per MPI task
+#SBATCH --cpus-per-task=128          # OpenMP threads per MPI task
 #SBATCH --mem=0                     # use all available memory
-#SBATCH --partition=GENOA
-#SBATCH -t 01:00:00                 # 1 hour
+#SBATCH --partition=EPYC
+#SBATCH -t 01:30:00                 # 1 hour and 30 min
 #SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH --job-name=self_attention_strong_scaling
 
@@ -35,8 +35,8 @@ REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requir
 RESULTS_DIR="results"
 mkdir -p "$RESULTS_DIR"
 
-# Thread counts to benchmark (powers of 2 up to 64 cores on GENOA partition)
-THREAD_COUNTS="1 2 4 8 16 32 64"
+# Thread counts to benchmark (powers of 2 up to 128 cores on EPYC partition)
+THREAD_COUNTS="1 2 4 8 16 32 64 128"
 
 echo "=== Starting strong scaling benchmark ==="
 
