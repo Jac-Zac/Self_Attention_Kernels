@@ -126,9 +126,9 @@ typedef struct {
 static CudaConfig make_cuda_config(const AttentionDims dims) {
   dim3 threads_per_block(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y);
 
-  // 3D mapping: x=queries/seq_len, y=head * batch
-  size_t blocks_x = CEIL_DIV(dims.seq_len, threads_per_block.y);
-  size_t blocks_y = CEIL_DIV(dims.batch * dims.n_heads, threads_per_block.z);
+  // 2D mapping: x=queries/seq_len, y=head * batch
+  size_t blocks_x = CEIL_DIV(dims.seq_len, threads_per_block.x);
+  size_t blocks_y = CEIL_DIV(dims.batch * dims.n_heads, threads_per_block.y);
 
   dim3 number_of_blocks(blocks_x, blocks_y);
 
