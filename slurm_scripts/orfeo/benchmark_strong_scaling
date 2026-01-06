@@ -4,10 +4,9 @@
 #SBATCH --ntasks-per-node=1         # 1 MPI task on the node
 #SBATCH --cpus-per-task=64          # OpenMP threads per MPI task
 #SBATCH --mem=0                     # use all available memory
-##SBATCH --partition=THIN
 #SBATCH --partition=GENOA
-#SBATCH -t 00:20:00                 # 20 minutes
-##SBATCH --exclusive                 # Get exclusive access to benchmark
+#SBATCH -t 01:00:00                 # 1 hour
+#SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH --job-name=self_attention_strong_scaling
 
 # Set OpenMP environment variables
