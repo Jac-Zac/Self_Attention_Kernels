@@ -21,24 +21,10 @@
 // seq_len_padded)
 // ============================================================================
 
-// Number of queries processed per tile
-// Workspace per thread: TILE_Q * seq_len_padded floats
 #ifndef TILE_Q
 #define TILE_Q 8
 #endif
 
-/**
- * Causal Multi-Head Self-Attention forward pass (multi-threaded CPU)
- *
- * Computes: out = softmax(Q K^T / sqrt(d)) V with causal masking
- *
- * @param Q         Query tensor [B, H, S, D] (row-major, D padded)
- * @param K         Key tensor [B, H, S, D]
- * @param V         Value tensor [B, H, S, D]
- * @param out       Output tensor [B, H, S, D]
- * @param attn_base Workspace [threads * TILE_Q * seq_len_padded]
- * @param dims      Attention dimensions (batch, heads, seq_len, head_dim)
- */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
                        float *RESTRICT attn_base, const AttentionDims dims) {
@@ -51,19 +37,24 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len_padded = dims.seq_len_padded;
   const float scale = 1.0f / sqrtf((float)head_dim);
 
+  const float *RESTRICT Q_al = (const float *)ASSUME_ALIGNED(Q, ALIGNMENT);
+  const float *RESTRICT K_al = (const float *)ASSUME_ALIGNED(K, ALIGNMENT);
+  const float *RESTRICT V_al = (const float *)ASSUME_ALIGNED(V, ALIGNMENT);
+  float *RESTRICT out_al = (float *)ASSUME_ALIGNED(out, ALIGNMENT);
+
 #pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch_size; b++) {
     for (size_t h = 0; h < num_heads; h++) {
 
       // Each thread gets its own scratch space for TILE_Q rows of scores
       size_t thread_id = (size_t)omp_get_thread_num();
-      float *scores = attn_base + thread_id * TILE_Q * seq_len_padded;
+      float *RESTRICT scores = attn_base + thread_id * TILE_Q * seq_len_padded;
+      scores = (float *)ASSUME_ALIGNED(scores, ALIGNMENT);
 
       // Per-query stats (small arrays, stay in registers/L1)
       float row_max[TILE_Q];
       float row_sum[TILE_Q];
 
-      // Base offset for current batch and head: [b, h, :, :]
       size_t bh_offset = (b * num_heads + h) * seq_len * head_dim_pad;
 
       // Process queries in tiles of TILE_Q
@@ -71,7 +62,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         size_t q_end = (q_tile + TILE_Q < seq_len) ? q_tile + TILE_Q : seq_len;
         size_t num_queries = q_end - q_tile;
 
-        // Initialize per-query stats
         for (size_t i = 0; i < num_queries; i++) {
           row_max[i] = -FLT_MAX;
         }
@@ -80,23 +70,24 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Pass 1: Compute scores for all queries in this tile
         // Load each K row once, compute dot product with all relevant Q rows
         // =================================================================
-        size_t max_key = q_end - 1; // Last query needs keys 0..max_key
+        size_t max_key = q_end - 1;
 
         for (size_t key_pos = 0; key_pos <= max_key; key_pos++) {
-          size_t key_offset = bh_offset + key_pos * head_dim_pad;
+          const float *RESTRICT k_row =
+              K_al + bh_offset + key_pos * head_dim_pad;
+          k_row = (const float *)ASSUME_ALIGNED(k_row, ALIGNMENT);
 
-          // Which queries in this tile need this key?
-          // Causal: query at query_pos needs key at key_pos if key_pos <=
-          // query_pos
           size_t q_start = (key_pos > q_tile) ? key_pos : q_tile;
 
           for (size_t query_pos = q_start; query_pos < q_end; query_pos++) {
             size_t i = query_pos - q_tile;
-            size_t query_offset = bh_offset + query_pos * head_dim_pad;
+            const float *RESTRICT q_row =
+                Q_al + bh_offset + query_pos * head_dim_pad;
+            q_row = (const float *)ASSUME_ALIGNED(q_row, ALIGNMENT);
 
             float dot = 0.0f;
             for (size_t d = 0; d < head_dim; d++) {
-              dot += Q[query_offset + d] * K[key_offset + d];
+              dot += q_row[d] * k_row[d];
             }
 
             float score = dot * scale;
@@ -110,16 +101,16 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // =================================================================
         for (size_t i = 0; i < num_queries; i++) {
           size_t query_pos = q_tile + i;
-          size_t num_keys = query_pos + 1; // Causal: keys 0..query_pos
-          size_t score_offset = i * seq_len_padded;
+          size_t num_keys = query_pos + 1;
+          float *RESTRICT row_scores = scores + i * seq_len_padded;
           float sum = 0.0f;
 
           for (size_t key_pos = 0; key_pos < num_keys; key_pos++) {
-            float exp_val = expf(scores[score_offset + key_pos] - row_max[i]);
-            scores[score_offset + key_pos] = exp_val;
+            float exp_val = expf(row_scores[key_pos] - row_max[i]);
+            row_scores[key_pos] = exp_val;
             sum += exp_val;
           }
-          row_sum[i] = 1.0f / sum; // Store inverse for multiplication
+          row_sum[i] = 1.0f / sum;
         }
 
         // =================================================================
@@ -130,29 +121,33 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         // Initialize outputs for this tile to zero
         for (size_t i = 0; i < num_queries; i++) {
           size_t query_pos = q_tile + i;
-          size_t output_offset = bh_offset + query_pos * head_dim_pad;
+          float *RESTRICT out_row =
+              out_al + bh_offset + query_pos * head_dim_pad;
+          out_row = (float *)ASSUME_ALIGNED(out_row, ALIGNMENT);
 
           for (size_t d = 0; d < head_dim; d++) {
-            out[output_offset + d] = 0.0f;
+            out_row[d] = 0.0f;
           }
         }
 
         // Accumulate weighted V rows
         for (size_t key_pos = 0; key_pos <= max_key; key_pos++) {
-          size_t value_offset = bh_offset + key_pos * head_dim_pad;
+          const float *RESTRICT v_row =
+              V_al + bh_offset + key_pos * head_dim_pad;
+          v_row = (const float *)ASSUME_ALIGNED(v_row, ALIGNMENT);
 
-          // Which queries in this tile use this value?
           size_t q_start = (key_pos > q_tile) ? key_pos : q_tile;
 
           for (size_t query_pos = q_start; query_pos < q_end; query_pos++) {
             size_t i = query_pos - q_tile;
-            size_t output_offset = bh_offset + query_pos * head_dim_pad;
-
-            // Multiply by inv_sum here (fused normalization)
             float weight = scores[i * seq_len_padded + key_pos] * row_sum[i];
 
+            float *RESTRICT out_row =
+                out_al + bh_offset + query_pos * head_dim_pad;
+            out_row = (float *)ASSUME_ALIGNED(out_row, ALIGNMENT);
+
             for (size_t d = 0; d < head_dim; d++) {
-              out[output_offset + d] += weight * V[value_offset + d];
+              out_row[d] += weight * v_row[d];
             }
           }
         }

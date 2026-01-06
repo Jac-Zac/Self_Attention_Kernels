@@ -5,6 +5,8 @@
 #include "include/utils.hpp"
 #include <stdio.h>
 
+#define TILE_Q 8
+
 // Default values resolved at compile time via make
 #ifndef BACKEND
 #define BACKEND "unknown"
@@ -32,7 +34,7 @@ int main(int argc, char *argv[]) {
   const size_t qkv_size =
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
-  const size_t workspace_size = (size_t)threads * seq_len_padded;
+  const size_t workspace_size = TILE_Q * (size_t)threads * seq_len_padded;
 
   // Allocate tensors
   struct Tensors t;
