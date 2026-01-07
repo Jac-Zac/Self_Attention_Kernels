@@ -24,19 +24,14 @@
 
 #include "sections/introduction.typ"
 #include "sections/background.typ"
-
-// NOTE: I should add something on single_threaded desccribing the comparison pytorch versions 
 #include "sections/single_thread.typ"
 
 = Multi-Threaded CPU Implementation  
 
+The multi-threaded benchmarks were run on Orfeo's EPYC partition.
 
-The benchmark has been runed like this on epyc partition of orfeo
-
-The EPYC partition consists of the 8 nodes equipped with two AMD EPYC 7H12 cpus.
-
-BENCH_BATCH=4 BENCH_HEADS=32 BENCH_SEQLEN=4096 BENCH_ITERS=10 
-
+Benchmark configuration used in this chapter:
+`BENCH_BATCH=4`, `BENCH_HEADS=32`, `BENCH_SEQLEN=4096`, `BENCH_ITERS=10`.
 
 == First test Version (v0)
 
@@ -65,8 +60,6 @@ Therefore i quickly switched to a direct allocation on the gpu with CudaMalloc a
 - v3 I was told to add this: --use_fast_math
 Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster
 
-
-
 [To be completed in next sections]
 
 = Performance Analysis and Results
@@ -79,3 +72,5 @@ Moreover I still have some uncoaleasced memory access so I have to think how to 
 
 = References
 #bibliography("refs.bib")
+
+#include "sections/appendix.typ"

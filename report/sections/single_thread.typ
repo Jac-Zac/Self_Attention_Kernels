@@ -11,8 +11,6 @@ For the single threaded version the benchmarks are run with the following config
 
 `batch=1`, `n_heads=4`, `seq_len=4096`, `head_dim=128`, `seed=1337`, `warmup=5`, `iters=25`.
 
-This takes a reasonable amount of time on the GENOA partition and results are averaged across iterations. 
-
 Code: #link("https://github.com/Jac-Zac/Self_Attention_Kernels/tree/main/kernels/single_thread")[github.com/Jac-Zac/Self_Attention_Kernels/tree/main/kernels/single_thread].
 
 == Simple baseline implementation (v0)
@@ -24,7 +22,7 @@ The implementation follows the following steps:
 
 1. Compute all $Q K^T$ scores (including masked positions)
 2. Apply causal mask by setting future positions to $-infinity$
-3. Compute softmax using numerically stable two-pass algorithm
+3. Compute softmax using numerically stable algorithm
 4. Explicitly zero out masked positions after softmax
 5. Compute weighted sum of values
 
@@ -188,7 +186,7 @@ More on additional optimization techniques will be said in the following section
 
 === Final Summary of Results
 
-The following figures showcases the actual results and timings.
+Detailed results additional to the figure are available in @tab:benchmark_single.
 
 #figure(
   image("../figures/benchmark_single.png", width: 95%),
