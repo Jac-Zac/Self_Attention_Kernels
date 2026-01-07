@@ -7,7 +7,7 @@ The compilation flags will be extremly important in the following sections every
 
 == Benchmark Configuration
 
-For the single threaded version the benchmarks are run with the following configuration, inspired by the OLMo 2 architecture @teamolmo2024olmo2furious but slightly scaled down:
+For the single threaded version the benchmarks are run with the following configuration:
 
 `batch=1`, `n_heads=4`, `seq_len=4096`, `head_dim=128`, `seed=1337`, `warmup=5`, `iters=25`.
 

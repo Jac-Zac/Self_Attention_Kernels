@@ -25,30 +25,7 @@
 #include "sections/introduction.typ"
 #include "sections/background.typ"
 #include "sections/single_thread.typ"
-
-= Multi-Threaded CPU Implementation  
-
-The multi-threaded benchmarks were run on Orfeo's EPYC partition.
-
-Benchmark configuration used in this chapter:
-`BENCH_BATCH=4`, `BENCH_HEADS=32`, `BENCH_SEQLEN=4096`, `BENCH_ITERS=10`.
-
-== First test Version (v0)
-
-The first approach was a simple parallelization with collapose over ... Which is reasonable because things are separate etc ... The cores are placed close etc .. you can look at the sllurm script.
-The result is quite reasonable already becuase of the well optimized code for v1 ... But with bigger input compared to the single threaded version it start beeing more reasonable to try to change the code to leverage the caceh more.
-
-== Tiling over ... (v1)
-
-One way to do so is the approach taken in v1 in this case the big chahnge was to ... moreover hitns to assume alligned ...
-
-=== Final overview
-
-The results with the benchmkar showcase ... A good scaling and ...
-
-figure ...
-
-Indeed the results are very good with comparable performance to the very optimized self attentino available from pytorch ... far exceeding the performance of the implementation you get when writing a pytorch code normally. 
+#include "sections/multi_thread.typ"
 
 = CUDA Implementation
 
