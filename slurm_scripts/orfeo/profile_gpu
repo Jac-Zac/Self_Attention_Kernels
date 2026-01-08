@@ -15,12 +15,12 @@
 # =======================================================
 # Configurable parameters (override via environment)
 # =======================================================
-VERSION="${VERSION:-v1}"
+VERSION="${VERSION:-v0}"
 # THREADS="${THREADS:-${SLURM_CPUS_PER_TASK}}"
 BATCH="${BATCH:-2}"
 N_HEADS="${N_HEADS:-8}"
-# SEQ_LEN="${SEQ_LEN:-2048}"
-SEQ_LEN="${SEQ_LEN:-1024}"
+SEQ_LEN="${SEQ_LEN:-2048}"
+# SEQ_LEN="${SEQ_LEN:-1024}"
 HEAD_DIM="${HEAD_DIM:-128}"
 WARMUP="${WARMUP:-3}"
 ITERS="${ITERS:-5}"
@@ -61,7 +61,7 @@ mkdir -p "$report_dir_ncu"
 
 # Generate a unique report file name based on the current timestamp
 timestamp=$(date +"%Y%m%d_%H%M%S")
-report_file="report_${timestamp}"
+report_file="report_${timestamp}_${VERSION}"
 
 # Run the nsys profile command and store the report in the specified directory
 # nsys profile --trace=cuda --stats=true -o "${report_dir_nsys}/${report_file}" $EXEC $ARGS

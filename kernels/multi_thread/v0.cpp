@@ -10,8 +10,6 @@
 //
 // Parallelization strategy:
 // - Uses OpenMP collapse(2) to parallelize over batch × heads dimensions
-// - With B=4, H=8 this gives 32 independent work units for good thread
-//   utilization
 // - Each thread gets its own scratch space for attention weights, indexed by
 //   thread_id
 //
