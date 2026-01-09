@@ -72,6 +72,8 @@ int main(int argc, char *argv[]) {
 
   // Allocate GPU memory
   float *Q_device, *K_device, *V_device, *out_device;
+
+  // Note that cudaMalloc returns 256+ byte aligned pointers
   CUDA_CHECK(cudaMalloc(&Q_device, qkv_size * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&K_device, qkv_size * sizeof(float)));
   CUDA_CHECK(cudaMalloc(&V_device, qkv_size * sizeof(float)));

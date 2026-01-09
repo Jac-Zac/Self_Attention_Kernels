@@ -31,6 +31,8 @@
 In this case we will not use Tensor cores which are actually the fastest thing to compute matrix multiplication on GPU (this is because they require more complexity etc but most of all because they work with half precition to full precision output which would differe from the rest of the implementations )
 Actually there are very interesting things about using tensor corses, and tensor memory which must be loaded via 4 warps in a warp-groups and are esesntially what stores the result from Tensor Core computation which instaed gets data from L1 and uses it directly without passing to regisrter and is extremly fast for certain type of opertaions like spexific matrix multplications.
 
+Note that uccda Malloc autmatically returns 256+ byte aligned pointers 
+
 == Some relevant notes on GPUs
 
 *Some relevant conepts I leaned for GPU programming*: from #link("https://modal.com/gpu-glossary/device-software/warp")[this awesome site].
@@ -46,8 +48,19 @@ The register file is split into 32 bit registers that can be dynamically realloc
 RAM is generally not on the same die as the SMs , though in the latest data center-grade GPUs like the H100, it is located on a shared interposer for decreased latency and increased bandwidth . These GPUs use High-Bandwidth Memory (HBM) technology, rather than the more familiar Double Data Rate (DDR) memory in consumer GPUs and CPUs.
 
 Instead of waiting for an instruction's results to return, when multiple warps are scheduled onto a single SM , the Warp Scheduler will select another warp to execute. This latency-hiding is how GPUs achieve high throughput and ensure work is always available for all of their cores during execution. For this reason, it is often beneficial to maximize the number of warps scheduled onto each SM , ensuring there is always an eligible warp for the SM to run
-he fraction of cycles on which a warp was issued an instruction is known as the issue efficiency . The degree of concurrency in warp scheduling is known as occupancy
-The equivalent of warps in other GPU programming models include _subgroups_ in WebGPU, _waves_ in DirectX, and _simdgroups_ in Metal.
+he fraction of cycles on which a warp was issued an instruction is known as the issue efficiency . The degree of concurrency in warp scheduling is known as occupancy (the ratio of the active warps to the maximum number of active warps on a device)
+Performant GPU programs hide latency by interleaving the execution of many threads . This allows programs to maintain high throughput despite long instruction latencies. When one warp stalls on a slow memory operation, the GPU immediately switches to execute instructions from another eligible warp .
+
+```nasm
+LDG.E.SYS R1, [R0]        // memory load, 400 cycles
+IMUL R2, R1, 0xBEEF       // integer multiply, 6 cycles
+IADD R4, R2, 0xAFFE       // integer add, 4 cycles
+IMUL R6, R4, 0x1337       // integer multiply, 6 cycles
+```
+
+Executed sequentially, this would take 416 cycles to complete. We can hide this latency by operating concurrently. If we assume we can issue one instruction every cycle, then, by Little's Law , if we run 416 concurrent threads , we can still finish the sequence once per cycle (on average), hiding the latency of memory from consumers of the data in R6.
+
+Note that the equivalent of warps in other GPU programming models include _subgroups_ in WebGPU, _waves_ in DirectX, and _simdgroups_ in Metal.
 
 A cooperative thread array (CTA) is a collection of threads scheduled onto the same Streaming Multiprocessor (SM). It is essentially what is rappresented by a block in the cuda programming model.
 CTAs are the PTX /SASS implementation of the CUDA programming model 's thread blocks . CTAs are composed of one or more warps 
@@ -64,7 +77,7 @@ A fairly typical kernel therefore looks something like this:
 
 Shared memory is stored in the *L1 data cache* of the GPU's *Streaming Multiprocessor (SM)*.
 
-
+When multiple threads in a warp simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict.
 
 == My code ...
 
@@ -77,8 +90,49 @@ I should then explain the basic implmentation and how things are done. To then g
 Note that in the case of gpu data access dooesn't have to be sequential for each thread in the warp but it just has to be conntigues and not strided (this gives huge speedups).
 
 - v2 Added coalasced memory access
+
+(If multiple concurrent logical accesses are serviced by a single physical burst, the access is said to be coalesced)
+
+Since data are loaded from DRAM in burst this allows to load 32 ... at once ! 
 I was told to add this: --use_fast_math
-Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster
+Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster. 
+Typically, a single burst can service 128 bytes – not coincidentally, enough for each of the 32 threads in a warp to load one 32 bit float.
+
+NOTE that we did meny optimization to explain
+
+1. Unrolling
+2. Shared memory
+3. Merging the two + better unrolling levereging vector loads (4floats)
+
+Local Memory (0.00 Inst): This is actually good. It means you have no register spilling. Your variables and the acc float4 in Step 4 are staying in registers.
+
+Though the hit rate of L1 cache is very low L1/TEX Cache hit rate is only 37.57%.
+This is likely caused by your access patterns for the Key (K) and Value (V) matrices
+
+- Thous I should probably tile K and V but I have to be carefull of not increasaing shared memory too much becuase of  the problem I speak about later.
+
+=== Very important note on shared memry (Bank conflicts) !
+When multiple threads in a warp simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict
+
+Addresses that differ by 32 × 4 = 128 bytes map to the same bank. Shared memories are roughly kilobyte scale, and so multiple addresses map onto the same bank.
+
+If we access sequential elements of an array in shared memory, each thread in our warp will hit a different bank:
+cpp
+
+```cpp
+__shared__ float data[1024];  // array in shared memory
+// all 32 threads access consecutive elements of data
+int tid = threadIdx.x;
+float value = data[tid];  // address LSBs: 0x00, 0x04, 0x08, ...
+```
+
+All 32 accesses complete in one memory transaction because each thread hits a different bank. This is depicted on the left in the figure above.
+But say we wanted our threads to access a column in a row-major shared memory array with 32 elements per row, and so we wrote:
+```cpp
+float value = data[tid * 32];  // address LSBs: 0x000, 0x080, 0x100 ...
+// recall: floats are 4 bytes wide
+```
+All accesses hit the same bank, Bank 0, and so must be serialized, resulting in a 32x increase in latency, rising from on the order of ten cycles to on the order of hundreds. We could solve this bank conflict by transposing our shared memory array. For more techniques to resolve bank conflicts, see the
 
 // NOTE:
 Putting aw in Shared Memory might seem like a good idea, though it leads to  a combination of low occupancy and memory traffic bottlenecking. 
