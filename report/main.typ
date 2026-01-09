@@ -14,8 +14,7 @@
   ),
   footer-text: "DSAI",
   branch: "Advanced High Performance Computing",
-  academic-year: "2025-2026",
-)
+  academic-year: "2025-2026",)
 
 // Enable equation numbering and justify
 #set math.equation(numbering: "(1)")
@@ -29,13 +28,66 @@
 
 = CUDA Implementation
 
+In this case we will not use Tensor cores which are actually the fastest thing to compute matrix multiplication on GPU (this is because they require more complexity etc but most of all because they work with half precition to full precision output which would differe from the rest of the implementations )
+Actually there are very interesting things about using tensor corses, and tensor memory which must be loaded via 4 warps in a warp-groups and are esesntially what stores the result from Tensor Core computation which instaed gets data from L1 and uses it directly without passing to regisrter and is extremly fast for certain type of opertaions like spexific matrix multplications.
+
+== Some relevant notes on GPUs
+
+*Some relevant conepts I leaned for GPU programming*: from #link("https://modal.com/gpu-glossary/device-software/warp")[this awesome site].
+
+CPUs can also run many threads concurrently. But switches between warps happen at the speed of a single clock cycle (over 1000x faster than context switches on a CPU), again powered by the SM's Warp Schedulers . The volume of available warps and the speed of warp switches help hide latency caused by memory reads, thread synchronization, or other expensive instructions, ensuring that the arithmetic bandwidth provided by the CUDA Cores and Tensor Cores is well utilized
+This latency-hiding is the secret to GPUs' strengths. CPUs seek to hide latency from end-users and programmers by maintaining large, hardware-managed caches and sophisticated instruction prediction. This extra hardware limits the fraction of their silicon area, power, and heat budgets that CPUs can allocate to computation.
+
+Because each thread has its own private registers allocated from the register file of the SM , context switches on the GPU do not require any data movement to save or restore contexts.
+And because the L1 caches on GPUs can be entirely programmer-managed and are shared between the warps scheduled together onto an SM (see cooperative thread array ), context switches on the GPU have much less impact on cache hit rates
+
+The register file is split into 32 bit registers that can be dynamically reallocated between different data types, like 32 bit integers, 64 bit floating point numbers, and (groups of) 16 bit or smaller floating point numbers. These physical registers back the virtual registers in the Parallel Thread eXecution (PTX) intermediate representation.
+
+RAM is generally not on the same die as the SMs , though in the latest data center-grade GPUs like the H100, it is located on a shared interposer for decreased latency and increased bandwidth . These GPUs use High-Bandwidth Memory (HBM) technology, rather than the more familiar Double Data Rate (DDR) memory in consumer GPUs and CPUs.
+
+Instead of waiting for an instruction's results to return, when multiple warps are scheduled onto a single SM , the Warp Scheduler will select another warp to execute. This latency-hiding is how GPUs achieve high throughput and ensure work is always available for all of their cores during execution. For this reason, it is often beneficial to maximize the number of warps scheduled onto each SM , ensuring there is always an eligible warp for the SM to run
+he fraction of cycles on which a warp was issued an instruction is known as the issue efficiency . The degree of concurrency in warp scheduling is known as occupancy
+The equivalent of warps in other GPU programming models include _subgroups_ in WebGPU, _waves_ in DirectX, and _simdgroups_ in Metal.
+
+A cooperative thread array (CTA) is a collection of threads scheduled onto the same Streaming Multiprocessor (SM). It is essentially what is rappresented by a block in the cuda programming model.
+CTAs are the PTX /SASS implementation of the CUDA programming model 's thread blocks . CTAs are composed of one or more warps 
+hreads in different CTAs cannot coordinate with each other via barriers, unlike threads within a CTA, and instead must coordinate via global memory , e.g. via atomic update instructions. Due to driver control over the scheduling of CTAs at runtime, CTA execution order is indeterminate and blocking a CTA on another CTA can easily lead to deadlock.
+
+Shared memory is the level of the memory hierarchy corresponding to the thread block level of the thread hierarchy in the CUDA programming model . It is generally expected to be much smaller but much faster (in throughput and latency) than the global memory .
+
+A fairly typical kernel therefore looks something like this:
+
+- load data from global memory into shared memory
+- perform a number of arithmetic operations on that data via the CUDA Cores and Tensor Cores
+- optionally, synchronize threads within a thread block by means of barriers while performing those operations
+- write data back into global memory, optionally preventing races across thread blocks by means of atomics
+
+Shared memory is stored in the *L1 data cache* of the GPU's *Streaming Multiprocessor (SM)*.
+
+
+
+== My code ...
+
 I initially tried malloc Managed but for some reason even though I coundn't really see it clearly from the nsyight system the results were absolutly atrocious. 
 Therefore i quickly switched to a direct allocation on the gpu with CudaMalloc and CudaMemcopy.
 
-- v2 Added coalasced memory access
+Already here in the SASS we can see the MUFU.EX2 which is caming from the fast math ... (Check the other non fast math if it has it) and is an instruction from the GPU’s SFU (Special Function Unit
 
-- v3 I was told to add this: --use_fast_math
+I should then explain the basic implmentation and how things are done. To then get to the magic of memory coleascing which allows for essentially (scatter-gather) load and store for warps to be extremly efficient whenever data is contigues in memory.
+Note that in the case of gpu data access dooesn't have to be sequential for each thread in the warp but it just has to be conntigues and not strided (this gives huge speedups).
+
+- v2 Added coalasced memory access
+I was told to add this: --use_fast_math
 Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster
+
+// NOTE:
+Putting aw in Shared Memory might seem like a good idea, though it leads to  a combination of low occupancy and memory traffic bottlenecking. 
+By putting aw in shared memory, shared memory requirements per block increases drastically (WARPS_PER_BLOCK * seq_len). 
+If seq_len is large (e.g., 1024), each block uses 32KB of SMEM, which severely limits how many blocks can run on a single SM simultaneously
+
+- v3 To remove the last memory access and try to get rid of this workspace we can do a nice trick which is perfoming online softmax and we can do so by ...
+This gives us ... 
+Moreover from this we can also use shared meomry to laod ... 
 
 [To be completed in next sections]
 
