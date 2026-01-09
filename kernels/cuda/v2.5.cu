@@ -146,8 +146,12 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     for (int k = 0; k <= q; ++k) {
       float w = aw[k] * inv_sum_exp;
 
+      // NOTE: This gives a small performance improvement
       // Use __ldg() to hint to the compiler to use the Read-Only/Data Cache
       // This is highly effective for the V matrix in attention
+      //
+      // const float4 v_val = *reinterpret_cast<const float4 *>(
+      //     &V[bh_offset + k * head_dim_pad + d]);
       const float4 v_val = __ldg(reinterpret_cast<const float4 *>(
           &V[bh_offset + k * head_dim_pad + d]));
 
