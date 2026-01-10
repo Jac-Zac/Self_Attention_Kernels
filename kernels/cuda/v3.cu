@@ -307,8 +307,10 @@ typedef struct {
 static CudaConfig make_cuda_config(const AttentionDims dims) {
   CudaConfig config;
   config.threads_per_block = dim3(WARP_SIZE, WARPS_PER_BLOCK);
-  config.number_of_blocks =
-      dim3(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);
+  size_t blocks_x = CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK);
+  size_t blocks_x = dims.batch * dims.n_heads;
+
+  config.number_of_blocks = dim3(blocks_x, blocks_y);
 
   // SMEM per warp: Q + K_tile + V_tile
   // const size_t smem_per_warp =

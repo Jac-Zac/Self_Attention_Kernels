@@ -31,7 +31,7 @@
 In this case we will not use Tensor cores which are actually the fastest thing to compute matrix multiplication on GPU (this is because they require more complexity etc but most of all because they work with half precition to full precision output which would differe from the rest of the implementations )
 Actually there are very interesting things about using tensor corses, and tensor memory which must be loaded via 4 warps in a warp-groups and are esesntially what stores the result from Tensor Core computation which instaed gets data from L1 and uses it directly without passing to regisrter and is extremly fast for certain type of opertaions like spexific matrix multplications.
 
-Note that uccda Malloc autmatically returns 256+ byte aligned pointers 
+Note that uccda Malloc autmatically returns 256+ byte aligned pointers
 
 == Some relevant notes on GPUs
 
@@ -63,7 +63,7 @@ Executed sequentially, this would take 416 cycles to complete. We can hide this 
 Note that the equivalent of warps in other GPU programming models include _subgroups_ in WebGPU, _waves_ in DirectX, and _simdgroups_ in Metal.
 
 A cooperative thread array (CTA) is a collection of threads scheduled onto the same Streaming Multiprocessor (SM). It is essentially what is rappresented by a block in the cuda programming model.
-CTAs are the PTX /SASS implementation of the CUDA programming model 's thread blocks . CTAs are composed of one or more warps 
+CTAs are the PTX /SASS implementation of the CUDA programming model 's thread blocks . CTAs are composed of one or more warps
 hreads in different CTAs cannot coordinate with each other via barriers, unlike threads within a CTA, and instead must coordinate via global memory , e.g. via atomic update instructions. Due to driver control over the scheduling of CTAs at runtime, CTA execution order is indeterminate and blocking a CTA on another CTA can easily lead to deadlock.
 
 Shared memory is the level of the memory hierarchy corresponding to the thread block level of the thread hierarchy in the CUDA programming model . It is generally expected to be much smaller but much faster (in throughput and latency) than the global memory .
@@ -81,7 +81,7 @@ When multiple threads in a warp simultaneously request memory within the same ba
 
 == My code ...
 
-I initially tried malloc Managed but for some reason even though I coundn't really see it clearly from the nsyight system the results were absolutly atrocious. 
+I initially tried malloc Managed but for some reason even though I coundn't really see it clearly from the nsyight system the results were absolutly atrocious.
 Therefore i quickly switched to a direct allocation on the gpu with CudaMalloc and CudaMemcopy.
 
 Already here in the SASS we can see the MUFU.EX2 which is caming from the fast math ... (Check the other non fast math if it has it) and is an instruction from the GPU’s SFU (Special Function Unit
@@ -93,9 +93,9 @@ Note that in the case of gpu data access dooesn't have to be sequential for each
 
 (If multiple concurrent logical accesses are serviced by a single physical burst, the access is said to be coalesced)
 
-Since data are loaded from DRAM in burst this allows to load 32 ... at once ! 
+Since data are loaded from DRAM in burst this allows to load 32 ... at once !
 I was told to add this: --use_fast_math
-Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster. 
+Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster.
 Typically, a single burst can service 128 bytes – not coincidentally, enough for each of the 32 threads in a warp to load one 32 bit float.
 
 NOTE that we did meny optimization to explain
@@ -135,13 +135,13 @@ float value = data[tid * 32];  // address LSBs: 0x000, 0x080, 0x100 ...
 All accesses hit the same bank, Bank 0, and so must be serialized, resulting in a 32x increase in latency, rising from on the order of ten cycles to on the order of hundreds. We could solve this bank conflict by transposing our shared memory array. For more techniques to resolve bank conflicts, see the
 
 // NOTE:
-Putting aw in Shared Memory might seem like a good idea, though it leads to  a combination of low occupancy and memory traffic bottlenecking. 
-By putting aw in shared memory, shared memory requirements per block increases drastically (WARPS_PER_BLOCK * seq_len). 
+Putting aw in Shared Memory might seem like a good idea, though it leads to  a combination of low occupancy and memory traffic bottlenecking.
+By putting aw in shared memory, shared memory requirements per block increases drastically $("WARPS_PER_BLOCK" * "seq_len")$.
 If seq_len is large (e.g., 1024), each block uses 32KB of SMEM, which severely limits how many blocks can run on a single SM simultaneously
 
 - v3 To remove the last memory access and try to get rid of this workspace we can do a nice trick which is perfoming online softmax and we can do so by ...
-This gives us ... 
-Moreover from this we can also use shared meomry to laod ... 
+This gives us ...
+Moreover from this we can also use shared meomry to laod ...
 
 [To be completed in next sections]
 
