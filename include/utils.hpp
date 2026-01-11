@@ -146,7 +146,7 @@ inline void init_random_tensors(float *RESTRICT Q, float *RESTRICT K,
                                 float *RESTRICT V, float *RESTRICT out,
                                 size_t batch, size_t n_heads, size_t seq_len,
                                 size_t head_dim_padded, unsigned seed) {
-#pragma omp parallel for collapse(3)
+#pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch; b++) {
     for (size_t h = 0; h < n_heads; h++) {
       for (size_t s = 0; s < seq_len; s++) {

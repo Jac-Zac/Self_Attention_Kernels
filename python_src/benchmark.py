@@ -215,9 +215,9 @@ def main():
         out_ref = out_ref.to(device)
 
         # Validate first kernel
-        assert torch.allclose(first_out_c, out_ref, rtol=args.rtol, atol=args.atol), (
-            f"Validation failed for {extract_version(first_bin)}"
-        )
+        assert torch.allclose(
+            first_out_c, out_ref, rtol=args.rtol, atol=args.atol
+        ), f"Validation failed for {extract_version(first_bin)}"
 
         # Record PyTorch results
         rows.append(
@@ -265,9 +265,9 @@ def main():
                 c_time = parse_c_time(c_output)
                 _, _, _, _, out_c = load_artifacts(outdir, device=args.device)
 
-            assert torch.allclose(out_c, out_ref, rtol=args.rtol, atol=args.atol), (
-                f"Validation failed for {version}"
-            )
+            assert torch.allclose(
+                out_c, out_ref, rtol=args.rtol, atol=args.atol
+            ), f"Validation failed for {version}"
             rows.append(
                 {
                     "threads": threads,
