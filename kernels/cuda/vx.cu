@@ -21,7 +21,7 @@
 // ============================================================================
 
 #define WARP_SIZE 32
-#define WARPS_PER_BLOCK 4 // Reduced from 8 for better occupancy
+#define WARPS_PER_BLOCK 8 // Reduced from 8 for better occupancy
 #define WARP_MASK 0xffffffff
 
 __inline__ __device__ float warp_reduce_sum_xor(float val) {

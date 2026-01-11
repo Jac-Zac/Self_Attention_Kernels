@@ -72,16 +72,18 @@ static inline AttentionDims make_attention_dims(size_t batch, size_t n_heads,
 //     2. probs = softmax(scores)  [numerically stable via softmax_max/lse]
 //   V              - Value tensor [batch, n_heads, seq_len, head_dim]
 //   out            - Output tensor [batch, n_heads, seq_len, head_dim]
-//   attn_weights   - Workspace base, sized at least
-//                     TILE_Q * threads*pad_seq_len(seq_len) floats
-//                     (multi-thread) or TILE_Q * 1*pad_seq_len(seq_len)
-//                     (single-thread)
+//   attn_weights   - Workspace base; required size depends on backend/version.
 //   dims           - Dimension specification
 //
 // Note: Internal row strides use pad_head_dim(head_dim). Logical math loops
 //       still iterate over head_dim and seq_len (or head_dim_pad for full
 //       SIMD).
 // ============================================================================
+// Returns CPU workspace size in bytes for the compiled backend/version.
+// The caller should allocate at least this many bytes and pass it as the
+// `attn_weights` / `workspace` buffer to `cmhsa_forward_cpu`.
+size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads);
+
 void cmhsa_forward_cpu(
     const float *RESTRICT Q,      // [batch, n_heads, seq_len, head_dim]
     const float *RESTRICT K,      // [batch, n_heads, seq_len, head_dim]

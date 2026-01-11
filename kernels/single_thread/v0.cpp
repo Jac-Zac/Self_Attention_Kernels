@@ -3,6 +3,11 @@
 #include <math.h>
 #include <stdlib.h>
 
+size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads) {
+  (void)threads;
+  return dims.seq_len_padded * sizeof(float);
+}
+
 /**
  * Causal Multi-Head Self-Attention forward pass (CPU implementation) - v0
  *
@@ -23,7 +28,7 @@
  * @param K           Key tensor [B, H, S, D]
  * @param V           Value tensor [B, H, S, D]
  * @param out         Output tensor [B, H, S, D]
- * @param attn_weights Workspace base [threads*seq_len_padded]
+ * @param attn_weights Workspace base [seq_len_padded]
  * @param dims        Attention dimensions (batch, heads, seq_len, head_dim)
  */
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,

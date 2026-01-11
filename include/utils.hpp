@@ -90,15 +90,25 @@ struct Tensors {
   float *RESTRICT workspace;
 };
 
-inline int allocate_tensors(struct Tensors *t, size_t qkv_size,
-                            size_t workspace_size) {
+inline int allocate_tensors(struct Tensors *t, size_t qkv_size_floats,
+                            size_t workspace_bytes) {
   t->Q = t->K = t->V = t->out = t->workspace = NULL;
   int err = 0;
-  err |= (ALIGNED_ALLOC_FLOAT(t->Q, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(t->K, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(t->V, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(t->out, qkv_size) != 0);
-  err |= (ALIGNED_ALLOC_FLOAT(t->workspace, workspace_size) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(t->Q, qkv_size_floats) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(t->K, qkv_size_floats) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(t->V, qkv_size_floats) != 0);
+  err |= (ALIGNED_ALLOC_FLOAT(t->out, qkv_size_floats) != 0);
+  size_t workspace_floats = 0;
+  if (workspace_bytes != 0) {
+    if (workspace_bytes % sizeof(float) != 0) {
+      fprintf(stderr, "Error: workspace size must be float-multiple\n");
+      return 1;
+    }
+    workspace_floats = workspace_bytes / sizeof(float);
+  }
+  if (workspace_floats > 0) {
+    err |= (ALIGNED_ALLOC_FLOAT(t->workspace, workspace_floats) != 0);
+  }
 
   if (err) {
     fprintf(stderr, "Error: aligned memory allocation failed\n");
@@ -115,7 +125,9 @@ inline int allocate_tensors(struct Tensors *t, size_t qkv_size,
   t->K = (float *)ASSUME_ALIGNED(t->K, ALIGNMENT);
   t->V = (float *)ASSUME_ALIGNED(t->V, ALIGNMENT);
   t->out = (float *)ASSUME_ALIGNED(t->out, ALIGNMENT);
-  t->workspace = (float *)ASSUME_ALIGNED(t->workspace, ALIGNMENT);
+  if (t->workspace) {
+    t->workspace = (float *)ASSUME_ALIGNED(t->workspace, ALIGNMENT);
+  }
   return 0;
 }
 

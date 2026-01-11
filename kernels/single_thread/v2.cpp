@@ -5,6 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads) {
+  (void)threads;
+  return dims.seq_len_padded * sizeof(float);
+}
+
 // NOTE: This version fuses max-finding with score computation to reduce passes
 // over the data. However, this can actually limit instruction-level parallelism
 // because the max comparison depends on each score computation, creating a

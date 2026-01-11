@@ -4,25 +4,30 @@
 #include <omp.h>
 #include <stdlib.h>
 
-size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads) {
-  return (size_t)threads * TILE_Q * dims.seq_len_padded * sizeof(float);
-}
+// ============================================================================
+// Multi-threaded Causal Multi-Head Self-Attention - v2 (Q-Tiled, padded
+// scratch)
+// ============================================================================
+//
+// Same algorithm as multi_thread/v1.cpp, but fixes potential false sharing in
+// the shared scratch buffer by padding each thread's slice to a cache line.
+//
+// Scratch layout per thread:
+//   scores[TILE_Q][seq_len_padded]
+// Thread i uses a slice starting at:
+//   attn_base + i * round_up_pow2(TILE_Q * seq_len_padded, CACHELINE_FLOATS)
+//
+// ============================================================================
 
-// ============================================================================
-// Multi-threaded Causal Multi-Head Self-Attention - v1 (Q-Tiled)
-// ============================================================================
-//
-// Key optimization over v0:
-// - Q-tiling: process TILE_Q queries together for better K/V cache reuse
-// - Each K row (Pass 1) and V row (Pass 3) loaded once per tile, not per query
-//
-//  - With tiling: each K row loaded once per TILE_Q queries = seq_len/TILE_Q
-//  - Same benefit for V in Pass 3
-//
-// Causal masking:
-// - Query at position i only attends to keys 0..i
-// - q_start = max(key_pos, q_tile) ensures we skip masked positions
-// ============================================================================
+static inline size_t cacheline_floats() { return ALIGNMENT / sizeof(float); }
+
+size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads) {
+  const size_t seq_len_padded = dims.seq_len_padded;
+  const size_t per_thread_raw = TILE_Q * seq_len_padded;
+  const size_t per_thread_stride =
+      round_up_pow2(per_thread_raw, cacheline_floats());
+  return (size_t)threads * per_thread_stride * sizeof(float);
+}
 
 void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
                        const float *RESTRICT V, float *RESTRICT out,
@@ -36,6 +41,10 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
   const size_t seq_len_padded = dims.seq_len_padded;
   const float scale = 1.0f / sqrtf((float)head_dim);
 
+  const size_t per_thread_raw = TILE_Q * seq_len_padded;
+  const size_t per_thread_stride =
+      round_up_pow2(per_thread_raw, cacheline_floats());
+
 // Each (batch, head) pair is independent - parallelize across them
 #pragma omp parallel for collapse(2)
   for (size_t b = 0; b < batch_size; b++) {
@@ -44,7 +53,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
       // Thread-local workspace for attention scores
       // Layout: scores[query_in_tile][key_pos]
       size_t thread_id = (size_t)omp_get_thread_num();
-      float *RESTRICT scores = attn_base + thread_id * TILE_Q * seq_len_padded;
+      float *RESTRICT scores = attn_base + thread_id * per_thread_stride;
       scores = (float *)ASSUME_ALIGNED(scores, ALIGNMENT);
 
       // Per-query stats (small arrays, stay in registers/L1)
@@ -74,14 +83,6 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
 
         // ===================================================================
         // Pass 1: Compute Q @ K^T scores for this tile
-        //
-        // Key insight: iterate over keys in OUTER loop so each K row is
-        // loaded once and reused for all queries in the tile that need it.
-        //
-        // Causal mask: query i can only see keys 0..i
-        //   - max_key = q_end - 1 (last query in tile)
-        //   - For each key, only compute for queries where key_pos <= query_pos
-        //   - q_start = max(key_pos, q_tile) skips masked entries
         // ===================================================================
         size_t max_key = q_end - 1;
         for (size_t key_pos = 0; key_pos <= max_key; key_pos++) {
@@ -136,9 +137,7 @@ void cmhsa_forward_cpu(const float *RESTRICT Q, const float *RESTRICT K,
         }
 
         // ===================================================================
-        // Pass 3: Weighted V accumulation (same loop pattern as Pass 1)
-        // For each V[key_pos], accumulate: out[query] += weight * V[key_pos]
-        // where weight = exp_score[key_pos] / sum = exp_score * row_sum
+        // Pass 3: Weighted V accumulation
         // ===================================================================
         for (size_t key_pos = 0; key_pos <= max_key; key_pos++) {
           const float *RESTRICT v_row =

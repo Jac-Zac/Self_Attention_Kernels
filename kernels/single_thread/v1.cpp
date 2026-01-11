@@ -4,6 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads) {
+  (void)threads;
+  return dims.seq_len_padded * sizeof(float);
+}
+
 // NOTE: v1 improves on v0 by:
 // 1. Respecting the causal mask during computation (not computing masked
 // values)

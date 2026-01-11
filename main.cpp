@@ -27,17 +27,16 @@ int main(int argc, char *argv[]) {
   // Setup dimensions and compute padded sizes
   AttentionDims dims =
       make_attention_dims(cfg.batch, cfg.n_heads, cfg.seq_len, cfg.head_dim);
+
   const size_t head_dim_padded = dims.head_dim_padded;
-  const size_t seq_len_padded = dims.seq_len_padded;
   const size_t qkv_size =
       cfg.batch * cfg.n_heads * cfg.seq_len * head_dim_padded;
 
-  // Allocate workspace for each tile for each thread
-  const size_t workspace_size = TILE_Q * (size_t)threads * seq_len_padded;
+  const size_t workspace_bytes = cmhsa_get_workspace_size_cpu(dims, threads);
 
   // Allocate tensors
   struct Tensors t;
-  if (allocate_tensors(&t, qkv_size, workspace_size) != 0) {
+  if (allocate_tensors(&t, qkv_size, workspace_bytes) != 0) {
     return 1;
   }
 

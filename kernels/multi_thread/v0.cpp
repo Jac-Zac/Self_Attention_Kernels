@@ -4,6 +4,10 @@
 #include <omp.h>
 #include <stdlib.h>
 
+size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads) {
+  return (size_t)threads * dims.seq_len_padded * sizeof(float);
+}
+
 // ============================================================================
 // Multi-threaded Causal Multi-Head Self-Attention - v0
 // ============================================================================

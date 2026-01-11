@@ -24,12 +24,11 @@
 //    - Allows scheduler to interleave warps
 //    - Hides memory latency
 //
-// 4. 4x Loop Unrolling (from v2_unroll):
+// 4. 4x Loop Unrolling:
 //    - In weighted sum step (Step 4)
 //    - Each thread maintains 4 accumulators
 //    - Better instruction-level parallelism
-//
-//    Moreover we load directly 4 floats -> iprovement over v2_unroll
+//    - Moreover we load directly 4 floats
 // ============================================================================
 
 #define WARP_SIZE 32
