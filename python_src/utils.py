@@ -55,26 +55,33 @@ def load_output_artifact(
     return meta, out_c
 
 
+def generate_random_qkv(
+    B: int, H: int, S: int, D: int, seed: int, device: str = "cpu"
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Generate random Q, K, V tensors for benchmarking."""
+    torch.manual_seed(seed)
+    Q = torch.randn(B, H, S, D, device=device) * 0.1
+    K = torch.randn(B, H, S, D, device=device) * 0.1
+    V = torch.randn(B, H, S, D, device=device) * 0.5
+    return Q, K, V
+
+
 def parse_gpu_info(output: str) -> dict:
     """Extract GPU info (name, compute_capability, memory_gb, sm_count) from output."""
     gpu_info = {}
 
-    # Extract GPU name
     m = re.search(r"GPU Device:\s*(.+)", output)
     if m:
         gpu_info["name"] = m.group(1).strip()
 
-    # Extract compute capability
     m = re.search(r"GPU Compute Capability:\s*(\d+)\.(\d+)", output)
     if m:
         gpu_info["compute_capability"] = f"{m.group(1)}.{m.group(2)}"
 
-    # Extract memory
     m = re.search(r"GPU Memory:\s*([0-9.]+)\s*GB", output)
     if m:
         gpu_info["memory_gb"] = float(m.group(1))
 
-    # Extract SM count
     m = re.search(r"GPU SM Count:\s*(\d+)", output)
     if m:
         gpu_info["sm_count"] = int(m.group(1))
@@ -84,7 +91,6 @@ def parse_gpu_info(output: str) -> dict:
 
 def parse_c_time(output: str) -> float:
     """Extract per-iteration time in seconds from C binary output."""
-    # Try CPU pattern first, then CUDA pattern
     m = re.search(
         r"(CPU|CUDA) attention forward \(per-iter\):\s*([0-9.]+)\s*(ms|s)", output
     )
@@ -94,7 +100,6 @@ def parse_c_time(output: str) -> float:
         )
     time_value = float(m.group(2))
     unit = m.group(3)
-    # Convert ms to s if needed
     return time_value / 1000.0 if unit == "ms" else time_value
 
 
@@ -124,9 +129,7 @@ def run_c_binary_with_input(
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])
 
-    output = subprocess.check_output(cmd, text=True)
-
-    return output
+    return subprocess.check_output(cmd, text=True)
 
 
 def save_qkv_artifacts(
@@ -147,9 +150,9 @@ def save_qkv_artifacts(
         "dtype": "float32",
     }
 
-    Q.contiguous().numpy().tofile(outdir / "q.bin")
-    K.contiguous().numpy().tofile(outdir / "k.bin")
-    V.contiguous().numpy().tofile(outdir / "v.bin")
+    Q.contiguous().cpu().numpy().tofile(outdir / "q.bin")
+    K.contiguous().cpu().numpy().tofile(outdir / "k.bin")
+    V.contiguous().cpu().numpy().tofile(outdir / "v.bin")
 
     with open(outdir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)

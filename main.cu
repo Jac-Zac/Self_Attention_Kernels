@@ -172,11 +172,9 @@ int main(int argc, char *argv[]) {
     VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, t.out[d]);
   }
 
-  // Validation mode: write artifacts for Python
+  // Validation mode: write output artifact for Python
   if (cfg.validate) {
-    size_t stats_size = cfg.batch * cfg.n_heads * cfg.seq_len;
-    struct Outputs outputs = {t.Q, t.K, t.V, t.out, qkv_size, stats_size, 0};
-    write_validation_artifacts(cfg.validate_dir, &cfg, &outputs);
+    write_output_artifact(cfg.validate_dir, t.out, &cfg);
   }
 
   // Cleanup

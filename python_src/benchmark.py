@@ -15,6 +15,7 @@ Usage:
 import argparse
 import csv
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,11 +23,12 @@ import torch
 import torch.nn.functional as F
 from utils import (
     RESULTS_DIR,
-    load_artifacts,
+    generate_random_qkv,
+    load_output_artifact,
     parse_c_time,
     parse_gpu_info,
-    run_c_binary,
-    tmp_artifacts_dir,
+    run_c_binary_with_input,
+    save_qkv_artifacts,
 )
 
 
@@ -68,15 +70,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def extract_version(bin_path: str) -> str:
-    """
-    Extract version name from binary path.
-
-    Args:
-        bin_path: Path to binary (e.g., './cmhsa_v1.out')
-
-    Returns:
-        str: Version string (e.g., 'v1')
-    """
+    """Extract version name from binary path (e.g., './cmhsa_v1.out' -> 'v1')."""
     name = Path(bin_path).stem
     return name[6:] if name.startswith("cmhsa_") else name
 
@@ -90,26 +84,7 @@ def bench_torch(
     iters: int,
     use_sdpa: bool,
 ) -> tuple[torch.Tensor, float]:
-    """
-    Benchmark PyTorch attention implementation.
-
-    Args:
-        Q: Query tensor [B, H, S, D]
-        K: Key tensor [B, H, S, D]
-        V: Value tensor [B, H, S, D]
-        warmup: Number of warmup iterations
-        iters: Number of timed iterations
-        use_sdpa: Whether to use scaled_dot_product_attention (True)
-                  or manual implementation (False)
-
-    Returns:
-        tuple: (output tensor, per-iteration time in seconds)
-
-    Note:
-        For CUDA tensors, we use torch.cuda.Event for accurate GPU timing.
-        This matches the CUDA event timing used in the C++ kernels (main.cu)
-        to ensure a fair apples-to-apples comparison.
-    """
+    """Benchmark PyTorch attention implementation."""
     if use_sdpa:
         fn = lambda: F.scaled_dot_product_attention(
             Q, K, V, attn_mask=None, dropout_p=0.0, is_causal=True
@@ -124,33 +99,61 @@ def bench_torch(
             attn = attn.masked_fill(mask, float("-inf"))
             return torch.matmul(F.softmax(attn, dim=-1), V)
 
-    # Warmup iterations
     for _ in range(warmup):
         fn()
 
-    # Use CUDA events for GPU timing to measure actual kernel execution time,
-    # not just host-side dispatch overhead. This matches main.cu timing methodology.
     if Q.device.type == "cuda":
-        torch.cuda.synchronize()  # ensure warmup is complete
+        torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
 
-        out = fn()  # ensure out is bound (handles iters=0 edge case)
+        out = fn()
         start_event.record()
         for _ in range(iters):
             out = fn()
         end_event.record()
 
-        torch.cuda.synchronize()  # wait for all kernels to complete
+        torch.cuda.synchronize()
         elapsed_ms = start_event.elapsed_time(end_event)
         return out, elapsed_ms / 1000.0 / iters
     else:
-        # CPU timing: use wall-clock time
-        out = fn()  # ensure out is bound (handles iters=0 edge case)
+        out = fn()
         t0 = time.perf_counter()
         for _ in range(iters):
             out = fn()
         return out, (time.perf_counter() - t0) / iters
+
+
+def run_kernel(
+    bin_path: str,
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    warmup: int,
+    iters: int,
+    use_srun: bool,
+    device: str,
+) -> tuple[torch.Tensor, float, str]:
+    """Run a C++ kernel and return (output, time, raw_output)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_dir = Path(tmpdir) / "input"
+        output_dir = Path(tmpdir) / "output"
+
+        save_qkv_artifacts(input_dir, Q, K, V)
+
+        c_output = run_c_binary_with_input(
+            bin_path,
+            input_dir=input_dir,
+            warmup=warmup,
+            iters=iters,
+            validate_outdir=output_dir,
+            use_srun=use_srun,
+        )
+
+        c_time = parse_c_time(c_output)
+        _, out_c = load_output_artifact(output_dir, device=device)
+
+    return out_c, c_time, c_output
 
 
 def main():
@@ -159,45 +162,32 @@ def main():
     device = torch.device(args.device)
     if args.device == "cuda" and not torch.cuda.is_available():
         print(
-            f"ERROR: --device cuda requested but CUDA is not available", file=sys.stderr
+            "ERROR: --device cuda requested but CUDA is not available", file=sys.stderr
         )
         sys.exit(1)
 
-    # Output path
     output_path = Path(args.output) if args.output else RESULTS_DIR / "benchmark.csv"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     is_cuda = args.backend == "cuda"
     rows = []
-
-    # Initialize GPU info for CUDA backends
     gpu_info = {}
 
+    # Generate Q, K, V once (same for all kernels)
+    Q, K, V = generate_random_qkv(
+        args.batch, args.n_heads, args.seq_len, args.head_dim, args.seed, args.device
+    )
+
     for threads in args.threads:
-        # Run first binary to get Q/K/V artifacts and extract GPU info if needed
+        # Run first binary to get timing and extract GPU info if needed
         first_bin = args.bins[0]
-        with tmp_artifacts_dir() as outdir:
-            c_output = run_c_binary(
-                first_bin,
-                args.batch,
-                args.n_heads,
-                args.seq_len,
-                args.head_dim,
-                args.seed,
-                threads,
-                args.warmup,
-                args.iters,
-                outdir,
-                args.use_srun,
-            )
-            first_time = parse_c_time(c_output)
-            _, Q, K, V, first_out_c = load_artifacts(outdir, device=args.device)
+        first_out_c, first_time, c_output = run_kernel(
+            first_bin, Q, K, V, args.warmup, args.iters, args.use_srun, args.device
+        )
 
-            # Extract GPU info for CUDA backend (only on first iteration)
-            if is_cuda and not gpu_info:
-                gpu_info = parse_gpu_info(c_output)
+        if is_cuda and not gpu_info:
+            gpu_info = parse_gpu_info(c_output)
 
-        # Print benchmark header with GPU info for CUDA
         if is_cuda:
             gpu_name = gpu_info.get("name", "Unknown GPU")
             print(f"\n=== Benchmarking with {threads} thread(s) [GPU: {gpu_name}] ===")
@@ -248,22 +238,9 @@ def main():
         # Benchmark remaining kernels
         for bin_path in args.bins[1:]:
             version = extract_version(bin_path)
-            with tmp_artifacts_dir() as outdir:
-                c_output = run_c_binary(
-                    bin_path,
-                    args.batch,
-                    args.n_heads,
-                    args.seq_len,
-                    args.head_dim,
-                    args.seed,
-                    threads,
-                    args.warmup,
-                    args.iters,
-                    outdir,
-                    args.use_srun,
-                )
-                c_time = parse_c_time(c_output)
-                _, _, _, _, out_c = load_artifacts(outdir, device=args.device)
+            out_c, c_time, _ = run_kernel(
+                bin_path, Q, K, V, args.warmup, args.iters, args.use_srun, args.device
+            )
 
             assert torch.allclose(
                 out_c, out_ref, rtol=args.rtol, atol=args.atol
@@ -277,7 +254,7 @@ def main():
                 }
             )
 
-        # Print summary for this thread count
+        # Print summary
         print(f"  pytorch_naive: {naive_time:.6f}s")
         print(f"  pytorch_sdpa:  {sdpa_time:.6f}s")
         for r in rows:

@@ -4,34 +4,37 @@ Simple, learning-focused kernels:
 
 - Single-thread CPU
 - Multi-core CPU (OpenMP)
-- CUDA (stub)
+- CUDA
 
 ## Build
 
 ```bash
 make single              # Single-threaded
 make multi               # Multi-threaded (OpenMP)
-make cuda                # CUDA (stub)
+make cuda                # CUDA
 make single VERSION=v2   # Specific version
 ```
 
 ## Run
 
 ```bash
-./cmhsa.out                          # Default parameters
+./cmhsa.out                          # Default parameters (random Q,K,V)
 ./cmhsa.out --batch 4 --n_heads 8 --seq_len 512 --head_dim 64
 ./cmhsa.out --seed 42 --warmup 10 --iters 50   # Timing control
 ./cmhsa.out --threads 8              # Set OpenMP threads (multi only)
-./cmhsa.out --validate-outdir DIR    # Export Q/K/V/out for validation
+./cmhsa.out --input-dir DIR          # Load Q,K,V from directory
+./cmhsa.out --validate-outdir DIR    # Export output tensor for validation
 ```
 
 ## Test
+
+Tests validate kernel outputs against PyTorch's `scaled_dot_product_attention` using **real Q, K, V tensors extracted from GPT-2** attention layers.
 
 ```bash
 make test                # Validate all versions against PyTorch
 ```
 
-Requires Python deps: `uv sync` or `pip install -r requirements.txt`
+Requires Python deps: `uv sync`
 
 ## Benchmark
 
@@ -70,12 +73,8 @@ python_src/
   benchmark.py        # Benchmark runner
   utils.py            # Shared utilities
   plot/               # Plotting package
-    __main__.py       # Auto-detect CLI
-    single.py         # Bar plot for single-thread
-    multi.py          # Strong scaling plot for multi-thread
-    cuda.py           # Bar plot for CUDA/GPU
-    utils.py          # Shared plot utilities
-  tests/              # Validation scripts
-main.cpp              # Entry point
+  tests/              # GPT-2 based validation tests
+main.cpp              # CPU entry point
+main.cu               # CUDA entry point
 Makefile              # Build targets
 ```
