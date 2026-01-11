@@ -36,7 +36,6 @@ python -c "import torch; print(f'Using Device: {torch.cuda.get_device_name(0)}')
 # -------------------------------
 # Benchmark configuration
 # -------------------------------
-BENCH_BACKEND=cuda
 BENCH_BATCH=4
 BENCH_HEADS=8
 BENCH_SEQLEN=2048
@@ -50,7 +49,7 @@ RESULTS_DIR="results"
 mkdir -p "$RESULTS_DIR"
 
 echo "=== Benchmark configuration ==="
-echo "Backend     : ${BENCH_BACKEND}"
+echo "Backend     : cuda"
 echo "Heads       : ${BENCH_HEADS}"
 echo "Sequence len: ${BENCH_SEQLEN}"
 echo "Head dim    : ${BENCH_HEADDIM}"
@@ -61,8 +60,7 @@ echo "Output file : ${RESULTS_DIR}/benchmark_gpu.csv"
 echo "================================"
 
 # Run benchmark
-make benchmark USE_SRUN=1 \
-  BENCH_BACKEND=${BENCH_BACKEND} \
+make benchmark-cuda USE_SRUN=1 \
   BENCH_BATCH=${BENCH_BATCH} \
   BENCH_HEADS=${BENCH_HEADS} \
   BENCH_SEQLEN=${BENCH_SEQLEN} \
@@ -70,7 +68,6 @@ make benchmark USE_SRUN=1 \
   BENCH_SEED=${BENCH_SEED} \
   BENCH_WARMUP=${BENCH_WARMUP} \
   BENCH_ITERS=${BENCH_ITERS} \
-  BENCH_THREADS=${SLURM_CPUS_PER_TASK} \
   BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_gpu.csv"
 
 echo ""

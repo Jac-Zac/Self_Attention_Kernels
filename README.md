@@ -32,6 +32,7 @@ Tests validate kernel outputs against PyTorch's `scaled_dot_product_attention` u
 
 ```bash
 make test                # Validate all versions against PyTorch
+uv run make test         # Recommended (ensures correct Python env)
 ```
 
 Requires Python deps: `uv sync`
@@ -39,9 +40,10 @@ Requires Python deps: `uv sync`
 ## Benchmark
 
 ```bash
-make benchmark                        # Default: single-threaded
-make benchmark BENCH_BACKEND=multi BENCH_THREADS=8   # Multi-threaded
-make benchmark BENCH_OUTPUT_FILE=results.csv         # Save to CSV
+make benchmark-single                 # Single-threaded kernels
+make benchmark-multi BENCH_THREADS=8  # Multi-threaded kernels
+make benchmark-cuda                   # CUDA kernels
+make benchmark-single BENCH_OUTPUT_FILE=results.csv  # Save to CSV
 ```
 
 Override parameters as needed: `BENCH_BATCH`, `BENCH_HEADS`, `BENCH_SEQLEN`, `BENCH_HEADDIM`, `BENCH_ITERS`.

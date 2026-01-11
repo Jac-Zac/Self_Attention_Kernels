@@ -10,32 +10,34 @@ DEBUG ?= 0
 VERBOSE ?= 0
 USE_SRUN ?= 0
 
+# Debug/verbose flags (must be defined before use)
+ifeq ($(DEBUG),1)
+  DEBUG_FLAGS := -DDEBUG -g
+  DEBUG_GCC   := -fopt-info-all
+  DEBUG_CLANG := -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
+  DEBUG_NVCC  := -lineinfo
+endif
+VERBOSE_FLAGS := $(if $(filter 1,$(VERBOSE)),-DVERBOSE)
+
 # Base flags
 CFLAGS := -O3 -march=native -ffast-math -flto
 # CFLAGS += -mprefer-vector-width=512
+
 OPENMP := -fopenmp-simd -fopenmp
 
 # Warning flags per compiler
-WARN_GCC   := -std=c++20 -Wall -Wextra -Wpedantic -Wno-unknown-pragmas
-WARN_CLANG := -Wall -Wextra -Wpedantic -Wconversion
+WARN_GCC   := -std=c++20 -Wall -Wextra -Wpedantic -Wno-unknown-pragmas $(DEBUG_GCC)
+WARN_CLANG := -Wall -Wextra -Wpedantic -Wconversion $(DEBUG_CLANG)
 
 # Select warning set based on compiler
 CXX_WARN := $(if $(filter clang++,$(CXX)),$(WARN_CLANG),$(WARN_GCC))
 
 # Combined flags
-CXXFLAGS  := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
+CXXFLAGS := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
+
 # CUDA_ARCH ?= sm_70
 CUDA_ARCH ?= sm_86
-NVCC_FLAGS := -O3 $(DEBUG_FLAGS) $(VERBOSE_FLAGS) -arch=$(CUDA_ARCH) -DUSE_CUDA --use_fast_math
-
-# Debug/verbose flags
-ifeq ($(DEBUG),1)
-  DEBUG_FLAGS := -DDEBUG -g
-  WARN_GCC   += -fopt-info-all
-  WARN_CLANG += -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
-	NVCC_FLAGS += -lineinfo
-endif
-VERBOSE_FLAGS := $(if $(filter 1,$(VERBOSE)),-DVERBOSE)
+NVCC_FLAGS := -O3 -arch=$(CUDA_ARCH) -DUSE_CUDA --use_fast_math $(DEBUG_FLAGS) $(DEBUG_NVCC) $(VERBOSE_FLAGS)
 
 # Discovered kernel versions
 SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
@@ -49,80 +51,27 @@ EXEC ?= cmhsa.out
 # Build targets
 # =============================================================================
 
+# Build recipe: $(1)=backend, $(2)=compiler+flags, $(3)=main, $(4)=src dir, $(5)=ext
+define build_kernel
+	$(2) -DBACKEND=\"$(1)\" -DVERSION_STR=\"$(VERSION)\" \
+		-o $(EXEC) $(3) $(4)/$(VERSION)$(5)
+endef
+
 single:
-	$(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"single\" -DVERSION_STR=\"$(VERSION)\" \
-		-o $(EXEC) main.cpp kernels/single_thread/$(VERSION).cpp
+	$(call build_kernel,single,$(CXX) $(CXXFLAGS) $(OPENMP),main.cpp,kernels/single_thread,.cpp)
 
 multi:
-	$(CXX) $(CXXFLAGS) $(OPENMP) -DBACKEND=\"multi\" -DVERSION_STR=\"$(VERSION)\" \
-		-o $(EXEC) main.cpp kernels/multi_thread/$(VERSION).cpp
+	$(call build_kernel,multi,$(CXX) $(CXXFLAGS) $(OPENMP),main.cpp,kernels/multi_thread,.cpp)
 
 cuda:
 	$(NVCC) $(NVCC_FLAGS) -DBACKEND=\"cuda\" -DVERSION_STR=\"$(VERSION)\" \
 		-o $(EXEC) main.cu kernels/cuda/$(VERSION).cu
 
 # =============================================================================
-# Benchmark
-# =============================================================================
-
-BENCH_BACKEND ?= single
-BENCH_THREADS ?= 1
-BENCH_DEVICE ?= $(if $(filter cuda,$(BENCH_BACKEND)),cuda,cpu)
-BENCH_OUTPUT_FILE ?=
-
-# Benchmark parameters (overridable)
-BENCH_BATCH ?= 2
-BENCH_HEADS ?= 4
-BENCH_SEQLEN ?= 1024
-BENCH_HEADDIM ?= 128
-BENCH_SEED ?= 1337
-BENCH_WARMUP ?= 5
-BENCH_ITERS ?= 20
-
-# Common benchmark arguments
-BENCH_COMMON_ARGS = --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) \
-    --seq_len $(BENCH_SEQLEN) --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
-    --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS)
-
-# Map backend to versions and source directory
-ifeq ($(BENCH_BACKEND),cuda)
-  BENCH_VERSIONS = $(CUDA_VERSIONS)
-  BENCH_SRC_DIR  = kernels/cuda
-  BENCH_COMPILER = $(NVCC) $(NVCC_FLAGS)
-else
-  BENCH_VERSIONS = $(if $(filter multi,$(BENCH_BACKEND)),$(MULTI_VERSIONS),$(SINGLE_VERSIONS))
-  BENCH_SRC_DIR  = kernels/$(if $(filter multi,$(BENCH_BACKEND)),multi,single)_thread
-  BENCH_COMPILER = $(CXX) $(CXXFLAGS) $(OPENMP)
-endif
-BENCH_BACKEND_ARG = $(if $(filter cuda,$(BENCH_BACKEND)),--backend cuda,$(if $(filter multi,$(BENCH_BACKEND)),--backend multi,--backend single))
-BENCH_THREADS_ARG = $(if $(filter cuda,$(BENCH_BACKEND)),,--threads $(BENCH_THREADS))
-BENCH_DEVICE_ARG = --device $(BENCH_DEVICE)
-
-benchmark:
-	@bins=""; \
-	for ver in $(BENCH_VERSIONS); do \
-	  bin=cmhsa_$$ver.out; \
-	  echo "Building $$bin (backend=$(BENCH_BACKEND), version=$$ver)"; \
-	  $(BENCH_COMPILER) -DBACKEND=\"$(BENCH_BACKEND)\" -DVERSION_STR=\"$$ver\" \
-	    -o $$bin $(if $(filter cuda,$(BENCH_BACKEND)),main.cu,main.cpp) \
-	    $(BENCH_SRC_DIR)/$$ver$(if $(filter cuda,$(BENCH_BACKEND)),.cu,.cpp); \
-	  bins="$$bins ./$$bin"; \
-	done; \
-	$(if $(filter 1,$(USE_SRUN)), \
-	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) $(BENCH_DEVICE_ARG) --use-srun $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)), \
-	  OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) \
-	  OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS) \
-	  python3 python_src/benchmark.py --bins $$bins $(BENCH_COMMON_ARGS) $(BENCH_BACKEND_ARG) $(BENCH_THREADS_ARG) $(BENCH_DEVICE_ARG) $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE)))
-	@$(MAKE) clean
-
-# =============================================================================
 # Test
 # =============================================================================
 
 test:
-	uv run pytest -v
-
-test-all:
 	@set -e; \
 	for ver in $(SINGLE_VERSIONS); do \
 	  echo "[test] single $$ver"; \
@@ -145,6 +94,61 @@ test-all:
 	fi
 
 # =============================================================================
+# Benchmark
+# =============================================================================
+
+BENCH_THREADS ?= 1
+BENCH_OUTPUT_FILE ?=
+
+# Benchmark parameters (overridable)
+BENCH_BATCH   ?= 2
+BENCH_HEADS   ?= 4
+BENCH_SEQLEN  ?= 2048
+BENCH_HEADDIM ?= 128
+BENCH_SEED    ?= 1337
+BENCH_WARMUP  ?= 5
+BENCH_ITERS   ?= 20
+
+# Common benchmark arguments
+BENCH_COMMON_ARGS := --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) \
+    --seq_len $(BENCH_SEQLEN) --head_dim $(BENCH_HEADDIM) --seed $(BENCH_SEED) \
+    --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS)
+
+# Thread environment for CPU benchmarks
+THREAD_ENV := OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) \
+    OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS)
+
+# SRUN prefix for cluster environments
+SRUN_PREFIX := $(if $(filter 1,$(USE_SRUN)),srun)
+
+# Benchmark recipe: $(1)=backend, $(2)=versions, $(3)=compiler+flags, $(4)=main, $(5)=src dir, $(6)=ext, $(7)=device
+define run_benchmark
+	@for ver in $(2); do \
+	  echo "Building cmhsa_$$ver.out ($(1)/$$ver)"; \
+	  $(3) -DBACKEND=\"$(1)\" -DVERSION_STR=\"$$ver\" \
+	    -o cmhsa_$$ver.out $(4) $(5)/$$ver$(6); \
+	done
+	$(THREAD_ENV) $(SRUN_PREFIX) python3 python_src/benchmark.py \
+	  --bins $(addprefix ./cmhsa_,$(addsuffix .out,$(2))) \
+	  $(BENCH_COMMON_ARGS) --backend $(1) --device $(7) \
+	  $(if $(filter-out cuda,$(1)),--threads $(BENCH_THREADS)) \
+	  $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE))
+	@$(MAKE) clean
+endef
+
+benchmark-single:
+	$(call run_benchmark,single,$(SINGLE_VERSIONS),$(CXX) $(CXXFLAGS) $(OPENMP),main.cpp,kernels/single_thread,.cpp,cpu)
+
+benchmark-multi:
+	$(call run_benchmark,multi,$(MULTI_VERSIONS),$(CXX) $(CXXFLAGS) $(OPENMP),main.cpp,kernels/multi_thread,.cpp,cpu)
+
+benchmark-cuda:
+	$(call run_benchmark,cuda,$(CUDA_VERSIONS),$(NVCC) $(NVCC_FLAGS),main.cu,kernels/cuda,.cu,cuda)
+
+# Default benchmark alias
+benchmark: benchmark-single
+
+# =============================================================================
 # Utilities
 # =============================================================================
 
@@ -157,33 +161,32 @@ help:
 	@echo "Usage: make <target> [VARIABLES]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  single     Build single-thread backend (VERSION?=v0)"
-	@echo "  multi      Build multi-core backend (OpenMP)"
-	@echo "  cuda       Build CUDA backend"
-	@echo "  test       Run pytest on current cmhsa.out binary (auto-detects backend)"
-	@echo "  test-all   Build and test all kernel versions (stops on first failure)"
-	@echo "  benchmark  Benchmark all kernel versions"
-	@echo "  clean      Remove build artifacts"
+	@echo "  single           Build single-thread backend (VERSION?=v0)"
+	@echo "  multi            Build multi-core backend (OpenMP)"
+	@echo "  cuda             Build CUDA backend"
+	@echo "  test             Build and test all kernel versions"
+	@echo "  benchmark-single Benchmark all single-thread kernel versions"
+	@echo "  benchmark-multi  Benchmark all multi-thread kernel versions"
+	@echo "  benchmark-cuda   Benchmark all CUDA kernel versions"
+	@echo "  clean            Remove build artifacts"
 	@echo ""
 	@echo "Build Variables:"
-	@echo "  VERSION=v1         Kernel version (default: v0)"
-	@echo "  DEBUG=1            Enable debug build"
-	@echo "  VERBOSE=1          Enable verbose output"
-	@echo "  CXX=clang++        Use clang instead of gcc"
-	@echo "  CUDA_ARCH=sm_70    CUDA architecture (default: sm_70, options: sm_70, sm_80, sm_86, sm_89)"
-	@echo "  USE_SRUN=1         Use srun for SLURM environments"
+	@echo "  VERSION=v1       Kernel version (default: v0)"
+	@echo "  DEBUG=1          Enable debug build"
+	@echo "  VERBOSE=1        Enable verbose output"
+	@echo "  CXX=clang++      Use clang instead of gcc"
+	@echo "  CUDA_ARCH=sm_70  CUDA architecture (default: sm_86)"
+	@echo "  USE_SRUN=1       Use srun for SLURM environments"
 	@echo ""
 	@echo "Benchmark Variables:"
-	@echo "  BENCH_BACKEND      Backend: single (default), multi, or cuda"
-	@echo "  BENCH_THREADS      Thread count (default: 1)"
-	@echo "  BENCH_DEVICE       Device for PyTorch: auto (cuda if BENCH_BACKEND=cuda, else cpu)"
+	@echo "  BENCH_THREADS      Thread count for multi-thread (default: 1)"
 	@echo "  BENCH_BATCH        Batch size (default: 2)"
 	@echo "  BENCH_HEADS        Number of heads (default: 4)"
-	@echo "  BENCH_SEQLEN       Sequence length (default: 2048)"
+	@echo "  BENCH_SEQLEN       Sequence length (default: 1024)"
 	@echo "  BENCH_HEADDIM      Head dimension (default: 128)"
 	@echo "  BENCH_SEED         Random seed (default: 1337)"
 	@echo "  BENCH_WARMUP       Warmup iterations (default: 5)"
 	@echo "  BENCH_ITERS        Benchmark iterations (default: 20)"
 	@echo "  BENCH_OUTPUT_FILE  Save results to CSV"
 
-.PHONY: all single multi cuda test test-all benchmark clean help
+.PHONY: all single multi cuda test benchmark benchmark-single benchmark-multi benchmark-cuda clean help

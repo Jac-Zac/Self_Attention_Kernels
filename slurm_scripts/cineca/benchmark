@@ -44,7 +44,7 @@ echo "=== Starting scaling benchmark ==="
 for threads in $THREAD_COUNTS; do
   echo ">>> $threads threads..."
   export OMP_NUM_THREADS=$threads
-  make benchmark BENCH_BACKEND=multi BENCH_THREADS=$threads USE_SRUN=1 BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_${threads}t.csv"
+  make benchmark-multi USE_SRUN=1 BENCH_THREADS=$threads BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_${threads}t.csv"
 done
 
 # Merge CSVs (keep header from first, skip headers from rest)
