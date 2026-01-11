@@ -4,11 +4,10 @@
 #SBATCH --ntasks-per-node=1         # 1 MPI task on the node
 #SBATCH --cpus-per-task=128           # Single thread for single-threaded benchmark
 #SBATCH --mem=0                     # use all available memory
-#SBATCH --partition=GENOA
+#SBATCH --partition=EPYC
 #SBATCH -t 00:30:00                 # 30 minutes (single-thread versions may take longer)
 #SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH --job-name=self_attention_multi
-
 
 # Set OpenMP environment variables
 export OMP_PLACES=cores
@@ -42,7 +41,7 @@ echo "Benchmarking all multi-threaded kernel versions..."
 
 # Run benchmark for single-threaded backend (all versions)
 make benchmark BENCH_BACKEND=multi BENCH_THREADS=${OMP_NUM_THREADS} USE_SRUN=1 \
-  BENCH_BATCH=2 BENCH_HEADS=16 BENCH_SEQLEN=4096 BENCH_HEADDIM=128 \
+  BENCH_BATCH=8 BENCH_HEADS=16 BENCH_SEQLEN=4096 BENCH_HEADDIM=128 \
   BENCH_SEED=1337 BENCH_WARMUP=5 BENCH_ITERS=25 \
   BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_multi.csv"
 

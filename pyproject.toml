@@ -10,6 +10,7 @@ dependencies = [
     "pandas>=2.3.3",
     "pytest>=8.0",
     "torch>=2.9.1",
+    "transformers>=4.57.3",
 ]
 
 [tool.pytest.ini_options]

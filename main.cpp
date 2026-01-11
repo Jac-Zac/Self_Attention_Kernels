@@ -19,6 +19,16 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  // If input_dir specified, load dimensions from meta.json first
+  if (cfg.input_dir) {
+    char meta_path[256];
+    snprintf(meta_path, sizeof(meta_path), "%s/meta.json", cfg.input_dir);
+    if (read_meta(meta_path, &cfg) != 0) {
+      return 1;
+    }
+    printf("Loaded dimensions from %s\n", meta_path);
+  }
+
   int threads = resolve_thread_count(cfg.threads);
   printf("backend=%s version=%s\n", BACKEND, VERSION_STR);
   printf("batch=%zu n_heads=%zu seq_len=%zu head_dim=%zu threads=%d\n",
@@ -40,9 +50,19 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // Initialize with random values (NUMA-aware)
-  init_random_tensors(t.Q, t.K, t.V, t.out, cfg.batch, cfg.n_heads, cfg.seq_len,
-                      head_dim_padded, cfg.seed);
+  // Initialize tensors: either load from files or generate random
+  if (cfg.input_dir) {
+    printf("Loading Q,K,V from %s\n", cfg.input_dir);
+    if (load_input_qkv(cfg.input_dir, t.Q, t.K, t.V, &cfg) != 0) {
+      free_tensors(&t);
+      return 1;
+    }
+    // Zero-initialize output
+    memset(t.out, 0, qkv_size * sizeof(float));
+  } else {
+    init_random_tensors(t.Q, t.K, t.V, t.out, cfg.batch, cfg.n_heads,
+                        cfg.seq_len, head_dim_padded, cfg.seed);
+  }
 
   VERBOSE_PRINT("Sample Q values (first head, first token):\n");
   for (size_t d = 0; d < cfg.head_dim && d < 5; d++) {
@@ -85,11 +105,9 @@ int main(int argc, char *argv[]) {
     VERBOSE_PRINT("out[0][0][0][%zu] = %f\n", d, t.out[d]);
   }
 
-  // Validation mode: write artifacts for Python
+  // Validation mode: write output artifact for Python
   if (cfg.validate) {
-    size_t stats_size = cfg.batch * cfg.n_heads * cfg.seq_len;
-    struct Outputs outputs = {t.Q, t.K, t.V, t.out, qkv_size, stats_size, 0};
-    write_validation_artifacts(cfg.validate_dir, &cfg, &outputs);
+    write_output_artifact(cfg.validate_dir, t.out, &cfg);
   }
 
   free_tensors(&t);

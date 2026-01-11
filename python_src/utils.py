@@ -29,65 +29,17 @@ def tmp_artifacts_dir():
             shutil.rmtree(RESULTS_TMP)
 
 
-def run_c_binary(
-    bin_path: str,
-    B: int,
-    H: int,
-    S: int,
-    D: int,
-    seed: int,
-    threads: int,
-    warmup: int = 0,
-    iters: int = 1,
-    validate_outdir: Path | None = None,
-    use_srun: bool = False,
-) -> str:
-    """Run the C/CUDA binary with given parameters. Returns stdout."""
-    cmd = ["srun"] if use_srun else []
-
-    base_cmd = [
-        bin_path,
-        "--batch",
-        str(B),
-        "--n_heads",
-        str(H),
-        "--seq_len",
-        str(S),
-        "--head_dim",
-        str(D),
-        "--seed",
-        str(seed),
-        "--warmup",
-        str(warmup),
-        "--iters",
-        str(iters),
-    ]
-
-    cmd.extend(base_cmd)
-
-    # Add threads argument for CPU backends
-    if threads > 0:
-        cmd.extend(["--threads", str(threads)])
-
-    if validate_outdir is not None:
-        cmd.extend(["--validate-outdir", str(validate_outdir)])
-
-    output = subprocess.check_output(cmd, text=True)
-
-    return output
-
-
 def _load_tensor(path: Path, shape: tuple) -> torch.Tensor:
     """Load a binary float32 file into a torch.Tensor with given shape."""
     arr = np.fromfile(path, dtype=np.float32)
     return torch.from_numpy(arr.reshape(shape)).contiguous()
 
 
-def load_artifacts(
+def load_output_artifact(
     outdir: Path,
     device: str = "cpu",
-) -> tuple[dict, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Load meta.json and Q, K, V, out tensors from C binary output directory."""
+) -> tuple[dict, torch.Tensor]:
+    """Load meta.json and output tensor from C binary output directory."""
     with open(outdir / "meta.json", "r") as f:
         meta = json.load(f)
 
@@ -98,13 +50,9 @@ def load_artifacts(
     shape = (B, H, S, D)
 
     device_obj = torch.device(device)
-
-    Q = _load_tensor(outdir / "q.bin", shape).to(device_obj)
-    K = _load_tensor(outdir / "k.bin", shape).to(device_obj)
-    V = _load_tensor(outdir / "v.bin", shape).to(device_obj)
     out_c = _load_tensor(outdir / "out.bin", shape).to(device_obj)
 
-    return meta, Q, K, V, out_c
+    return meta, out_c
 
 
 def parse_gpu_info(output: str) -> dict:
@@ -148,3 +96,60 @@ def parse_c_time(output: str) -> float:
     unit = m.group(3)
     # Convert ms to s if needed
     return time_value / 1000.0 if unit == "ms" else time_value
+
+
+def run_c_binary_with_input(
+    bin_path: str,
+    input_dir: Path,
+    warmup: int = 0,
+    iters: int = 1,
+    validate_outdir: Path | None = None,
+    use_srun: bool = False,
+) -> str:
+    """Run the C/CUDA binary with Q,K,V loaded from input_dir. Returns stdout."""
+    cmd = ["srun"] if use_srun else []
+
+    base_cmd = [
+        bin_path,
+        "--input-dir",
+        str(input_dir),
+        "--warmup",
+        str(warmup),
+        "--iters",
+        str(iters),
+    ]
+
+    cmd.extend(base_cmd)
+
+    if validate_outdir is not None:
+        cmd.extend(["--validate-outdir", str(validate_outdir)])
+
+    output = subprocess.check_output(cmd, text=True)
+
+    return output
+
+
+def save_qkv_artifacts(
+    outdir: Path,
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+) -> None:
+    """Save Q, K, V tensors and metadata to directory for C++ to read."""
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    B, H, S, D = Q.shape
+    meta = {
+        "batch": B,
+        "n_heads": H,
+        "seq_len": S,
+        "head_dim": D,
+        "dtype": "float32",
+    }
+
+    Q.contiguous().numpy().tofile(outdir / "q.bin")
+    K.contiguous().numpy().tofile(outdir / "k.bin")
+    V.contiguous().numpy().tofile(outdir / "v.bin")
+
+    with open(outdir / "meta.json", "w") as f:
+        json.dump(meta, f, indent=2)
