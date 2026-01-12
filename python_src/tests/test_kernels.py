@@ -49,5 +49,5 @@ def test_kernel_gpt2(layer, text, desc, qkv_cache, backend, tmp_path):
     mean_err = (out_c - out_ref).abs().mean().item()
 
     assert torch.allclose(
-        out_c, out_ref, rtol=1e-4, atol=1e-5
+        out_c, out_ref, rtol=1e-5, atol=1e-6
     ), f"GPT-2 layer {layer} ({desc}): max_err={max_err:.2e}, mean_err={mean_err:.2e}"

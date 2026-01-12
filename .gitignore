@@ -46,6 +46,7 @@ Thumbs.db
 
 # Python things
 *.py[cod]
+.pytest_cache/
 
 # Results directory (benchmarks, validation artifacts, etc.)
 results/

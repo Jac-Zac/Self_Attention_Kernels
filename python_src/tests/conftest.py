@@ -20,6 +20,11 @@ GPT2_CONFIGS = [
     (0, "The quick brown fox jumps over the lazy dog.", "medium_layer0"),
     (6, "Attention is all you need.", "layer6"),
     (11, "The transformer architecture revolutionized NLP.", "last_layer"),
+    (
+        0,
+        "In recent years, deep learning has transformed the field of natural language processing. The introduction of the transformer architecture marked a significant milestone, enabling models to handle long-range dependencies more effectively than previous approaches. Self-attention mechanisms allow models to weigh the importance of different words in a sentence when processing each word, leading to better contextual representations. This has led to remarkable improvements in machine translation, text summarization, question answering, and many other NLP tasks. Large language models trained on massive datasets have demonstrated impressive capabilities in generating coherent text, answering questions, and even performing multi-step reasoning tasks.",
+        "long_sequence",
+    ),
 ]
 
 
