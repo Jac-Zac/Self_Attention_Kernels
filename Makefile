@@ -157,6 +157,9 @@ all: single
 clean:
 	rm -rf cmhsa* *.dSYM
 
+clean-cache:
+	rm -rf .pytest_cache/qkv_cache
+
 help:
 	@echo "Usage: make <target> [VARIABLES]"
 	@echo ""
@@ -169,6 +172,7 @@ help:
 	@echo "  benchmark-multi  Benchmark all multi-thread kernel versions"
 	@echo "  benchmark-cuda   Benchmark all CUDA kernel versions"
 	@echo "  clean            Remove build artifacts"
+	@echo "  clean-cache      Remove cached QKV test tensors"
 	@echo ""
 	@echo "Build Variables:"
 	@echo "  VERSION=v1       Kernel version (default: v0)"
@@ -189,4 +193,4 @@ help:
 	@echo "  BENCH_ITERS        Benchmark iterations (default: 20)"
 	@echo "  BENCH_OUTPUT_FILE  Save results to CSV"
 
-.PHONY: all single multi cuda test benchmark benchmark-single benchmark-multi benchmark-cuda clean help
+.PHONY: all single multi cuda test benchmark benchmark-single benchmark-multi benchmark-cuda clean clean-cache help
