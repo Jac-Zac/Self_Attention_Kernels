@@ -4,6 +4,11 @@
 #include <omp.h>
 #include <stdlib.h>
 
+// Default tile size (can be overridden via -DTILE_Q=N)
+#ifndef TILE_Q
+#define TILE_Q 32
+#endif
+
 size_t cmhsa_get_workspace_size_cpu(const AttentionDims dims, int threads) {
   return (size_t)threads * TILE_Q * dims.seq_len_padded * sizeof(float);
 }

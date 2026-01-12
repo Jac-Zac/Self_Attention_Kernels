@@ -4,6 +4,11 @@
 #include <omp.h>
 #include <stdlib.h>
 
+// Default tile size (can be overridden via -DTILE_Q=N)
+#ifndef TILE_Q
+#define TILE_Q 32
+#endif
+
 // ============================================================================
 // Multi-threaded Causal Multi-Head Self-Attention - v2 (Q-Tiled, padded
 // scratch)

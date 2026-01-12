@@ -3,11 +3,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Default tile size (can be overridden via -DTILE_Q=N)
-#ifndef TILE_Q
-#define TILE_Q 32
-#endif
-
 // Logical-to-padded dimension helpers
 // These functions compute padded dimensions
 static inline size_t pad_head_dim(size_t head_dim) {
