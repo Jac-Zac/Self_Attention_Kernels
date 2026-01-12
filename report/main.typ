@@ -28,6 +28,8 @@
 
 = CUDA Implementation
 
+NOTE That apparently pytorch version are even specifically optimized for common haed dims eg (64/ 128 allowing for much better optimization and shared memory usage)
+
 In this case we will not use Tensor cores which are actually the fastest thing to compute matrix multiplication on GPU (this is because they require more complexity etc but most of all because they work with half precition to full precision output which would differe from the rest of the implementations )
 Actually there are very interesting things about using tensor corses, and tensor memory which must be loaded via 4 warps in a warp-groups and are esesntially what stores the result from Tensor Core computation which instaed gets data from L1 and uses it directly without passing to regisrter and is extremly fast for certain type of opertaions like spexific matrix multplications.
 

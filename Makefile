@@ -15,7 +15,8 @@ ifeq ($(DEBUG),1)
   DEBUG_FLAGS := -DDEBUG -g
   DEBUG_GCC   := -fopt-info-all
   DEBUG_CLANG := -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
-  DEBUG_NVCC  := -lineinfo
+  # Add compiler line info and ptx info and shared memory info
+  DEBUG_NVCC  := -lineinfo -Xptxas=-v
 endif
 VERBOSE_FLAGS := $(if $(filter 1,$(VERBOSE)),-DVERBOSE)
 

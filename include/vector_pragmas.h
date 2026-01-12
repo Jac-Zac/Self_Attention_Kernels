@@ -80,6 +80,19 @@
 #define ASSUME_ALIGNED(V, A) ((__typeof__(V))__builtin_assume_aligned((V), (A)))
 #define ATTRIBUTE_ALIGNED(A) __attribute__((__aligned__((A))))
 
+/* ----------------------------- CUDA ------------------------------------ */
+#elif defined(__CUDACC__)
+
+#define IVDEP
+#define LOOP_VECTORIZE
+#define LOOP_VECTOR_LENGTH(N)
+
+#define LOOP_UNROLL _Pragma("unroll")
+#define LOOP_UNROLL_N(N) _DO_PRAGMA(unroll N)
+
+#define ASSUME_ALIGNED(V, A) (V)
+#define ATTRIBUTE_ALIGNED(A) __attribute__((aligned((A))))
+
 /* ------------------------------ GCC ------------------------------------ */
 #elif defined(__GNUC__)
 
