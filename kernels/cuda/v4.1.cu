@@ -6,33 +6,34 @@
 #include <math.h>
 
 // ============================================================================
-// v4.1: Register-Based Output with Clean Array Storage
+// v4.2: Multi-Key Processing (4 keys per iteration)
 // ============================================================================
-// Refactored v4 using float[4] arrays for cleaner, more compact code.
-// Same algorithm as v4, just better organized.
+// Building on v4's register output, this version processes 4 keys per iteration
+// to improve instruction-level parallelism (ILP).
 //
-// Key features (same as v4):
-// - Online softmax (no workspace needed)
-// - Output accumulator in registers
-// - Single write to global memory at the end
+// Key insight:
+// - MUFU.EX2 (expf) has ~16-20 cycle latency
+// - By computing 4 dot products before softmax updates, we overlap computation
+// - While exp results compute, we're loading data for next operations
 //
-// Code improvements:
-// - Q, K, V, output stored in float[4] arrays
-// - Cleaner loop structure with indexed access
-// - Compiler keeps small arrays in registers (no spills)
+// Changes from v4:
+// - Process 4 keys per loop iteration
+// - Compute all 4 dot products before any softmax update
+// - Handle remainder keys (0-3) after main loop
 //
-// Supported head_dim: up to 128 (32 lanes * 4 floats)
+// Supported head_dim: up to 128
 // ============================================================================
 
 #define WARP_SIZE 32
 #define WARPS_PER_BLOCK 8
 #define WARP_MASK 0xffffffff
+#define MAX_D_PER_LANE 4 // Support up to head_dim=128
+#define KEYS_PER_ITER 4
 
 __inline__ __device__ float warp_reduce_sum_xor(float val) {
 #pragma unroll
-  for (int mask = 16; mask > 0; mask >>= 1) {
+  for (int mask = 16; mask > 0; mask >>= 1)
     val += __shfl_xor_sync(WARP_MASK, val, mask);
-  }
   return val;
 }
 
@@ -44,79 +45,139 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
 
-  const int q_idx = blockIdx.x * WARPS_PER_BLOCK + warp_id;
-  const int bh_idx = blockIdx.y;
+  const int q = blockIdx.x * WARPS_PER_BLOCK + warp_id;
+  const int bh = blockIdx.y;
 
-  if (q_idx >= (int)dims.seq_len ||
-      bh_idx >= (int)(dims.batch * dims.n_heads))
+  if (q >= (int)dims.seq_len || bh >= (int)(dims.batch * dims.n_heads))
     return;
 
   const int head_dim = (int)dims.head_dim;
   const float scale = rsqrtf((float)head_dim);
 
-  const int b = bh_idx / dims.n_heads;
-  const int h = bh_idx % dims.n_heads;
+  const int b = bh / dims.n_heads;
+  const int h = bh % dims.n_heads;
+
   const size_t bh_offset = b * (dims.n_heads * dims.seq_len * head_dim_pad) +
                            h * (dims.seq_len * head_dim_pad);
 
-  // Each lane handles 4 elements at strided positions: lane_id, lane_id+32, ...
-  // This matches v4's interleaved access pattern
-  float r_Q[4] = {0}, r_K[4], r_V[4], r_out[4] = {0};
+  const size_t q_offset = bh_offset + q * head_dim_pad;
+  const size_t out_offset = q_offset;
 
-  // Load Q once (reused for all keys)
-#pragma unroll
-  for (int i = 0; i < 4; i++) {
-    const int d = lane_id + i * WARP_SIZE;
-    if (d < head_dim) {
-      r_Q[i] = Q[bh_offset + q_idx * head_dim_pad + d];
-    }
-  }
-
+  // Online softmax state
   float softmax_max = -FLT_MAX;
   float softmax_sum = 0.0f;
 
-  // Process one key at a time (causal: k <= q_idx)
-  for (int k = 0; k <= q_idx; k++) {
-    const size_t kv_offset = bh_offset + k * head_dim_pad;
-
-    // Load K
+  // Register-based output accumulator
+  float out_accum[MAX_D_PER_LANE];
 #pragma unroll
-    for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < MAX_D_PER_LANE; i++) {
+    out_accum[i] = 0.0f;
+  }
+
+  // Main loop: process 4 keys per iteration
+  int k = 0;
+  for (; k + 3 <= q; k += KEYS_PER_ITER) {
+    const size_t k_offset0 = bh_offset + k * head_dim_pad;
+    const size_t k_offset1 = bh_offset + (k + 1) * head_dim_pad;
+    const size_t k_offset2 = bh_offset + (k + 2) * head_dim_pad;
+    const size_t k_offset3 = bh_offset + (k + 3) * head_dim_pad;
+
+    // Compute all 4 dot products first (better ILP)
+    float dot0 = 0.0f, dot1 = 0.0f, dot2 = 0.0f, dot3 = 0.0f;
+
+#pragma unroll
+    for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      r_K[i] = (d < head_dim) ? K[kv_offset + d] : 0.0f;
+      if (d < head_dim) {
+        float q_val = Q[q_offset + d];
+        dot0 += q_val * K[k_offset0 + d];
+        dot1 += q_val * K[k_offset1 + d];
+        dot2 += q_val * K[k_offset2 + d];
+        dot3 += q_val * K[k_offset3 + d];
+      }
     }
 
-    // Dot product Q . K
-    float dot = 0.0f;
-#pragma unroll
-    for (int i = 0; i < 4; i++) {
-      dot += r_Q[i] * r_K[i];
-    }
-    float score = warp_reduce_sum_xor(dot) * scale;
+    float score0 = warp_reduce_sum_xor(dot0) * scale;
+    float score1 = warp_reduce_sum_xor(dot1) * scale;
+    float score2 = warp_reduce_sum_xor(dot2) * scale;
+    float score3 = warp_reduce_sum_xor(dot3) * scale;
 
-    // Online softmax update
-    float new_max = fmaxf(softmax_max, score);
-    float rescale = expf(softmax_max - new_max);
-    float weight = expf(score - new_max);
-    softmax_sum = softmax_sum * rescale + weight;
-    softmax_max = new_max;
-
-    // Load V and accumulate weighted output
+    // Online softmax updates (sequential - order matters)
 #pragma unroll
-    for (int i = 0; i < 4; i++) {
-      const int d = lane_id + i * WARP_SIZE;
-      r_V[i] = (d < head_dim) ? V[kv_offset + d] : 0.0f;
-      r_out[i] = r_out[i] * rescale + weight * r_V[i];
+    for (int ki = 0; ki < KEYS_PER_ITER; ki++) {
+      float score;
+      switch (ki) {
+      case 0:
+        score = score0;
+        break;
+      case 1:
+        score = score1;
+        break;
+      case 2:
+        score = score2;
+        break;
+      default:
+        score = score3;
+        break;
+      }
+
+      size_t kv_offset = bh_offset + (k + ki) * head_dim_pad;
+
+      float new_max = fmaxf(softmax_max, score);
+      float alpha = expf(softmax_max - new_max);
+      float weight = expf(score - new_max);
+
+      softmax_sum = softmax_sum * alpha + weight;
+
+#pragma unroll
+      for (int i = 0; i < MAX_D_PER_LANE; i++) {
+        const int d = lane_id + i * WARP_SIZE;
+        if (d < head_dim) {
+          out_accum[i] = out_accum[i] * alpha + weight * V[kv_offset + d];
+        }
+      }
+      softmax_max = new_max;
     }
   }
 
-  // Normalize and write to global memory
-  const float inv_sum = 1.0f / softmax_sum;
+  // Handle remaining keys (0-3)
+  for (; k <= q; ++k) {
+    const size_t k_offset = bh_offset + k * head_dim_pad;
+
+    float dot_partial = 0.0f;
 #pragma unroll
-  for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < MAX_D_PER_LANE; i++) {
+      const int d = lane_id + i * WARP_SIZE;
+      if (d < head_dim) {
+        dot_partial += Q[q_offset + d] * K[k_offset + d];
+      }
+    }
+
+    float score = warp_reduce_sum_xor(dot_partial) * scale;
+
+    float new_max = fmaxf(softmax_max, score);
+    float alpha = expf(softmax_max - new_max);
+    float weight = expf(score - new_max);
+
+    softmax_sum = softmax_sum * alpha + weight;
+
+#pragma unroll
+    for (int i = 0; i < MAX_D_PER_LANE; i++) {
+      const int d = lane_id + i * WARP_SIZE;
+      if (d < head_dim) {
+        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
+      }
+    }
+    softmax_max = new_max;
+  }
+
+  // Normalize and write to global memory
+  float inv_sum = 1.0f / softmax_sum;
+#pragma unroll
+  for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     if (d < head_dim) {
-      out[bh_offset + q_idx * head_dim_pad + d] = r_out[i] * inv_sum;
+      out[out_offset + d] = out_accum[i] * inv_sum;
     }
   }
 }
