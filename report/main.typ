@@ -82,6 +82,7 @@ Shared memory is stored in the *L1 data cache* of the GPU's *Streaming Multiproc
 When multiple threads in a warp simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict.
 
 == My code ...
+NOTE: I'm not memory bound but compute bounod and also wasting a lot of time in stalling ! I should read the reports and learn to read the Roofline !!!
 
 I initially tried malloc Managed but for some reason even though I coundn't really see it clearly from the nsyight system the results were absolutly atrocious.
 Therefore i quickly switched to a direct allocation on the gpu with CudaMalloc and CudaMemcopy.

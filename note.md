@@ -2,14 +2,6 @@
 
 Review `static inline` functions in header files
 
-> Remember to check with the assembly when the compiler says it is vectorizing
-
-I can try to force the compiler to not vectorize the code but nothing change next step is to analyze the assembly on a linux system
-
-- I don't trust it with floating point numbers
-
-- Try this for auto-vectorization: https://www.youtube.com/watch?v=fPGodf5hNoo and function inlining
-
 ### Attention
 
 - Implementation: https://github.com/HicrestLaboratory/Open-VIT-bench
@@ -27,33 +19,9 @@ More videos:
 
 #### Note:
 
-First write the synch threads version before proceeding with the softmax
-
-- You can also synch warp
-
-Also keep in mind `logf` instead of `log` operation which goes to the GPU. You can look at the cuda math API intrinsics.
-
--> Single precision device intrinsics
-
-For example if I want to use softmax or using `use_fastmath` flag
-
--> You can profile the python code with nsycompute too. To compare the attention and the flash attention implementation
-
--> With torch utils c++ extension test out attention also in python might be a nice thing to show
-
-### Suggested step for me
-
-Perhaps start working with data that is or allocated by you or as a tensor so that it can be used by torch with torch:extension and then do the python bindings
-
 Rember to pin the memory if you want to show that
 
 - Try **CuPY** to compare performances with that too and also with torch
-
-- Compute it multiple times for an average and throw away the first 3 for example for both compilation and warmup
-
-### More suggestions
-
-- Additionally you can use GDB with core dumps very useful to see what is happening to the program
 
 ## Additional work
 
