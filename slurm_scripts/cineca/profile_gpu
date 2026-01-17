@@ -14,10 +14,9 @@ module load nvhpc
 # =======================================================
 # Configurable parameters (override via environment)
 # =======================================================
-VERSION="${VERSION:-v1}"
-# THREADS="${THREADS:-${SLURM_CPUS_PER_TASK}}"
-BATCH="${BATCH:-2}"
-N_HEADS="${N_HEADS:-8}"
+VERSION="${VERSION:-v0}"
+BATCH="${BATCH:-8}"
+N_HEADS="${N_HEADS:-32}"
 SEQ_LEN="${SEQ_LEN:-2048}"
 HEAD_DIM="${HEAD_DIM:-128}"
 WARMUP="${WARMUP:-3}"
@@ -34,7 +33,7 @@ echo "=== Starting GPU benchmark ==="
 # Setup
 # =======================================================
 EXEC="./cmhsa.out"
-ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads 1 --warmup ${WARMUP} --iters ${ITERS}"
+ARGS="--batch ${BATCH} --n_heads ${N_HEADS} --seq_len ${SEQ_LEN} --head_dim ${HEAD_DIM} --threads 4 --warmup ${WARMUP} --iters ${ITERS}"
 
 # Define the directory to store reports
 report_dir_nsys="reports/nsys"

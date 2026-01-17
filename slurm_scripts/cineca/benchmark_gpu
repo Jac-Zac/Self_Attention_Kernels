@@ -1,0 +1,65 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:1
+#SBATCH --partition=boost_usr_prod
+#SBATCH -A uTS25_Tornator
+#SBATCH -t 00:05:00
+##SBATCH --exclusive
+
+module load nvhpc
+module load profile/deeplrn
+module load cineca-ai
+
+#SBATCH --job-name=self_attention_bench
+echo "Running GPU benchmark on Cineca"
+# 2. Load CUDA module for the kernel compilation
+module load cuda
+
+# 3. Activate the environment created by uv
+source .venv/bin/activate
+
+echo "=== Starting GPU benchmark ==="
+python -c "import torch; print(f'Using Device: {torch.cuda.get_device_name(0)}')"
+
+# -------------------------------
+# Benchmark configuration
+# -------------------------------
+BENCH_BATCH=4
+BENCH_HEADS=32
+BENCH_SEQLEN=4096
+BENCH_HEADDIM=128
+BENCH_SEED=1337
+BENCH_WARMUP=5
+BENCH_ITERS=25
+
+# Create results directory
+RESULTS_DIR="results"
+mkdir -p "$RESULTS_DIR"
+
+echo "=== Benchmark configuration ==="
+echo "Backend     : cuda"
+echo "Heads       : ${BENCH_HEADS}"
+echo "Sequence len: ${BENCH_SEQLEN}"
+echo "Head dim    : ${BENCH_HEADDIM}"
+echo "Seed        : ${BENCH_SEED}"
+echo "Warmup iters: ${BENCH_WARMUP}"
+echo "Run iters   : ${BENCH_ITERS}"
+echo "Output file : ${RESULTS_DIR}/benchmark_gpu.csv"
+echo "================================"
+
+# Run benchmark
+make benchmark-cuda USE_SRUN=1 \
+  BENCH_BATCH=${BENCH_BATCH} \
+  BENCH_HEADS=${BENCH_HEADS} \
+  BENCH_SEQLEN=${BENCH_SEQLEN} \
+  BENCH_HEADDIM=${BENCH_HEADDIM} \
+  BENCH_SEED=${BENCH_SEED} \
+  BENCH_WARMUP=${BENCH_WARMUP} \
+  BENCH_ITERS=${BENCH_ITERS} \
+  BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_gpu.csv"
+
+echo ""
+echo "=== GPU benchmark complete ==="
+echo "Results: $RESULTS_DIR/benchmark_gpu.csv"
