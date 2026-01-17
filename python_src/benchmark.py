@@ -31,6 +31,10 @@ from utils import (
     save_qkv_artifacts,
 )
 
+# Disallow tensor cores for fair comparison
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for benchmark script."""

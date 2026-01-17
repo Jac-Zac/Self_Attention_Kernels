@@ -17,6 +17,10 @@ from utils import load_output_artifact, run_c_binary_with_input, save_qkv_artifa
 
 BIN = "./cmhsa.out"
 
+# Disable TF32 for strict FP32 numerical comparison in tests
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+
 
 @pytest.mark.parametrize("layer,text,desc", GPT2_CONFIGS)
 def test_kernel_gpt2(layer, text, desc, qkv_cache, backend, tmp_path):

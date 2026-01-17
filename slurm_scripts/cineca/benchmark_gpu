@@ -7,18 +7,17 @@
 #SBATCH -A uTS25_Tornator
 #SBATCH -t 00:05:00
 ##SBATCH --exclusive
+#SBATCH --job-name=self_attention_bench
 
 module load nvhpc
 module load profile/deeplrn
 module load cineca-ai
 
-#SBATCH --job-name=self_attention_bench
 echo "Running GPU benchmark on Cineca"
-# 2. Load CUDA module for the kernel compilation
-module load cuda
 
-# 3. Activate the environment created by uv
-source .venv/bin/activate
+# NOTE: Use default from the loaded modules
+# Activate the environment created by uv
+# source .venv/bin/activate
 
 echo "=== Starting GPU benchmark ==="
 python -c "import torch; print(f'Using Device: {torch.cuda.get_device_name(0)}')"

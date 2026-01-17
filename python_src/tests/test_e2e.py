@@ -19,6 +19,10 @@ from utils import load_output_artifact, run_c_binary_with_input, save_qkv_artifa
 
 BIN = "./cmhsa.out"
 
+# Disable TF32 for strict FP32 numerical comparison in tests
+torch.backends.cuda.matmul.allow_tf32 = False
+torch.backends.cudnn.allow_tf32 = False
+
 
 def _run_layer_with_kernel(
     Q: torch.Tensor,
@@ -140,6 +144,6 @@ def test_e2e_model_output(text, desc, backend):
     max_err = (logits_kernel - logits_pytorch).abs().max().item()
     mean_err = (logits_kernel - logits_pytorch).abs().mean().item()
 
-    assert torch.allclose(logits_kernel, logits_pytorch, rtol=1e-3, atol=1e-4), (
-        f"E2E test ({desc}): max_err={max_err:.2e}, mean_err={mean_err:.2e}"
-    )
+    assert torch.allclose(
+        logits_kernel, logits_pytorch, rtol=1e-3, atol=1e-4
+    ), f"E2E test ({desc}): max_err={max_err:.2e}, mean_err={mean_err:.2e}"

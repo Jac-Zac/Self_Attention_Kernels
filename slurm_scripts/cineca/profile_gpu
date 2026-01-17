@@ -54,4 +54,4 @@ report_file="report_${timestamp}_${VERSION}"
 # echo "Report generated: ${report_dir_nsys}/${report_file}.qdrep"
 
 # Original
-srun ncu --set full --launch-skip ${WARMUP} --launch-count ${ITERS} --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS
+srun ncu --set full --target-processes all --launch-skip ${WARMUP} --launch-count ${ITERS} --import-source yes -o "${report_dir_ncu}/${report_file}" $EXEC $ARGS
