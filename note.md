@@ -2,6 +2,8 @@
 
 Review `static inline` functions in header files
 
+Perhpas only have one thread do the exp and also use warp level primitives for the reduction to compute the sum. And then broadcast also
+
 ### Attention
 
 - Implementation: https://github.com/HicrestLaboratory/Open-VIT-bench

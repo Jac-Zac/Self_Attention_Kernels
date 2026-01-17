@@ -146,6 +146,9 @@ If seq_len is large (e.g., 1024), each block uses 32KB of SMEM, which severely l
 This gives us ...
 Moreover from this we can also use shared meomry to laod ...
 
+- v4 Saving local results in registeres for the output accumulator
+My code doesn't show local sotres which would indicate register spilling (that is very good pehraps we can even try to use more registers since we are not seeing problems there)
+
 [To be completed in next sections]
 
 = Performance Analysis and Results
