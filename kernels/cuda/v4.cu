@@ -19,11 +19,10 @@
 //
 // Supported head_dim: up to 128 (4 floats per lane * 32 lanes)
 //
-// IMPORTANT: No bounds checks (if d < head_dim) needed because:
-// 1. VEC_PADDING=32 when USE_CUDA is defined (see vector_pragmas.h)
-// 2. head_dim_padded is always a multiple of WARP_SIZE (32)
-// 3. Padding elements are zero-initialized, so 0*0=0 contributes nothing
-// 4. This enables fully branchless, unrollable loops
+// NOTE: Bounds checks (d < head_dim) ARE required for:
+// - Reading K/V: prevents reading garbage beyond allocated memory
+// - Writing output: prevents writing beyond the valid output region
+// The Q load already has bounds checks since we load it once at the start.
 // ============================================================================
 
 #define WARP_SIZE 32
@@ -88,7 +87,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     float dot_partial = 0.0f;
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      dot_partial += q_r[i] * K[k_offset + d];
+      if (d < head_dim) {
+        dot_partial += q_r[i] * K[k_offset + d];
+      }
     }
 
     float score = warp_reduce_sum_xor(dot_partial) * scale;
@@ -103,7 +104,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     // Update output in registers (no global memory access!)
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
+      if (d < head_dim) {
+        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
+      }
     }
 
     softmax_max = new_max;
@@ -113,7 +116,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   float inv_sum = 1.0f / softmax_sum;
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
-    out[out_offset + d] = out_accum[i] * inv_sum;
+    if (d < head_dim) {
+      out[out_offset + d] = out_accum[i] * inv_sum;
+    }
   }
 }
 

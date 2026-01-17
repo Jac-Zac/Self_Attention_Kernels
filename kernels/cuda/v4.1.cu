@@ -88,15 +88,18 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     const size_t k_offset3 = bh_offset + (k + 3) * head_dim_pad;
 
     // Compute all 4 dot products first (better ILP)
+    // NOTE: bounds check required to avoid reading garbage beyond head_dim
     float dot0 = 0.0f, dot1 = 0.0f, dot2 = 0.0f, dot3 = 0.0f;
 
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      float q_val = q_r[i];
-      dot0 += q_val * K[k_offset0 + d];
-      dot1 += q_val * K[k_offset1 + d];
-      dot2 += q_val * K[k_offset2 + d];
-      dot3 += q_val * K[k_offset3 + d];
+      if (d < head_dim) {
+        float q_val = q_r[i];
+        dot0 += q_val * K[k_offset0 + d];
+        dot1 += q_val * K[k_offset1 + d];
+        dot2 += q_val * K[k_offset2 + d];
+        dot3 += q_val * K[k_offset3 + d];
+      }
     }
 
     float score0 = warp_reduce_sum_xor(dot0) * scale;
@@ -132,7 +135,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
       for (int i = 0; i < MAX_D_PER_LANE; i++) {
         const int d = lane_id + i * WARP_SIZE;
-        out_accum[i] = out_accum[i] * alpha + weight * V[kv_offset + d];
+        if (d < head_dim) {
+          out_accum[i] = out_accum[i] * alpha + weight * V[kv_offset + d];
+        }
       }
       softmax_max = new_max;
     }
@@ -145,7 +150,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     float dot_partial = 0.0f;
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      dot_partial += q_r[i] * K[k_offset + d];
+      if (d < head_dim) {
+        dot_partial += q_r[i] * K[k_offset + d];
+      }
     }
 
     float score = warp_reduce_sum_xor(dot_partial) * scale;
@@ -158,7 +165,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
+      if (d < head_dim) {
+        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
+      }
     }
     softmax_max = new_max;
   }
@@ -167,7 +176,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   float inv_sum = 1.0f / softmax_sum;
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
-    out[out_offset + d] = out_accum[i] * inv_sum;
+    if (d < head_dim) {
+      out[out_offset + d] = out_accum[i] * inv_sum;
+    }
   }
 }
 
