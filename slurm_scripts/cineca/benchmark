@@ -16,20 +16,7 @@ export OMP_PROC_BIND=close
 echo "Running scaling benchmark on Cineca"
 echo "Available CPUs: ${SLURM_CPUS_PER_TASK}"
 
-# Minimal Python venv + requirements
-VENV_DIR="${VENV_DIR:-.venv}"
-PY_BIN="${PY_BIN:-$(command -v python3 || command -v python)}"
-if [ -z "$PY_BIN" ]; then
-  echo "Python not found. Load a Python module." >&2
-  exit 1
-fi
-[ -d "$VENV_DIR" ] || "$PY_BIN" -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
-pip install --upgrade pip -q
-
-REQ_FILE="${REQ_FILE:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)/requirements.txt}"
-[ -f "$REQ_FILE" ] || REQ_FILE="requirements.txt"
-[ -f "$REQ_FILE" ] && pip install -r "$REQ_FILE" -q
+source .venv/bin/activate
 
 # Create results directory
 RESULTS_DIR="results"
