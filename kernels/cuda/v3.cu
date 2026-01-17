@@ -16,10 +16,11 @@ __inline__ __device__ float warp_reduce_sum_xor(float val) {
   return val;
 }
 
-__global__ void
-cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
-                     const float *RESTRICT V, float *RESTRICT out,
-                     const AttentionDims dims, const size_t head_dim_pad) {
+__global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
+                                     const float *RESTRICT K,
+                                     const float *RESTRICT V,
+                                     float *RESTRICT out,
+                                     const AttentionDims dims) {
 
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
@@ -31,6 +32,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     return;
 
   const size_t head_dim = dims.head_dim;
+  const size_t head_dim_pad = dims.head_dim_padded;
   const float scale = rsqrtf((float)head_dim);
 
   const int b = bh / dims.n_heads;
@@ -98,7 +100,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   dim3 block(WARP_SIZE, WARPS_PER_BLOCK);
   dim3 grid(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);
 
-  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims,
-                                        dims.head_dim_padded);
+  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims);
 }
 #endif

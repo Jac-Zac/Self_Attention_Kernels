@@ -55,8 +55,7 @@ __inline__ __device__ float warp_reduce_max_xor(float val) {
 __global__ void
 cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
                      const float *RESTRICT V, float *RESTRICT out,
-                     float *RESTRICT attn_weights, const AttentionDims dims,
-                     const size_t head_dim_pad) {
+                     float *RESTRICT attn_weights, const AttentionDims dims) {
 
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
@@ -68,6 +67,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   const size_t seq_len = dims.seq_len;
   const size_t head_dim = dims.head_dim;
+  const size_t head_dim_pad = dims.head_dim_padded;
   const float scale = rsqrtf((float)head_dim);
 
   const int b = bh / dims.n_heads;
@@ -209,6 +209,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
 
   cmhsa_forward_kernel<<<config.number_of_blocks, config.threads_per_block,
                          config.shared_mem_size>>>(Q, K, V, out, workspace,
-                                                   dims, dims.head_dim_padded);
+                                                   dims);
 }
 #endif

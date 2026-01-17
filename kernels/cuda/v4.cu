@@ -17,6 +17,12 @@
 // - Only write to global memory once at the end after normalization
 //
 // Supported head_dim: up to 128 (4 floats per lane * 32 lanes)
+//
+// IMPORTANT: No bounds checks (if d < head_dim) needed because:
+// 1. VEC_PADDING=32 when USE_CUDA is defined (see vector_pragmas.h)
+// 2. head_dim_padded is always a multiple of WARP_SIZE (32)
+// 3. Padding elements are zero-initialized, so 0*0=0 contributes nothing
+// 4. This enables fully branchless, unrollable loops
 // ============================================================================
 
 #define WARP_SIZE 32
@@ -31,10 +37,11 @@ __inline__ __device__ float warp_reduce_sum_xor(float val) {
   return val;
 }
 
-__global__ void
-cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
-                     const float *RESTRICT V, float *RESTRICT out,
-                     const AttentionDims dims, const size_t head_dim_pad) {
+__global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
+                                     const float *RESTRICT K,
+                                     const float *RESTRICT V,
+                                     float *RESTRICT out,
+                                     const AttentionDims dims) {
 
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
@@ -46,6 +53,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     return;
 
   const int head_dim = (int)dims.head_dim;
+  const size_t head_dim_pad = dims.head_dim_padded;
   const float scale = rsqrtf((float)head_dim);
 
   const int b = bh / dims.n_heads;
@@ -63,7 +71,6 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   // Register-based output accumulator (key optimization!)
   float out_accum[MAX_D_PER_LANE];
-#pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     out_accum[i] = 0.0f;
   }
@@ -74,12 +81,9 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
     // Q·K dot product
     float dot_partial = 0.0f;
-#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      if (d < head_dim) {
-        dot_partial += Q[q_offset + d] * K[k_offset + d];
-      }
+      dot_partial += Q[q_offset + d] * K[k_offset + d];
     }
 
     float score = warp_reduce_sum_xor(dot_partial) * scale;
@@ -92,12 +96,9 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     softmax_sum = softmax_sum * alpha + weight;
 
     // Update output in registers (no global memory access!)
-#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      if (d < head_dim) {
-        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
-      }
+      out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
     }
 
     softmax_max = new_max;
@@ -108,9 +109,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 #pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
-    if (d < head_dim) {
-      out[out_offset + d] = out_accum[i] * inv_sum;
-    }
+    out[out_offset + d] = out_accum[i] * inv_sum;
   }
 }
 
@@ -129,7 +128,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   dim3 block(WARP_SIZE, WARPS_PER_BLOCK);
   dim3 grid(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);
 
-  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims,
-                                        dims.head_dim_padded);
+  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims);
 }
 #endif

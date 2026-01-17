@@ -6,7 +6,7 @@
 #include <math.h>
 
 // ============================================================================
-// v4.2: Multi-Key Processing (4 keys per iteration)
+// v4.x: Multi-Key Processing (4 keys per iteration)
 // ============================================================================
 // Building on v4's register output, this version processes 4 keys per iteration
 // to improve instruction-level parallelism (ILP).
@@ -37,10 +37,11 @@ __inline__ __device__ float warp_reduce_sum_xor(float val) {
   return val;
 }
 
-__global__ void
-cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
-                     const float *RESTRICT V, float *RESTRICT out,
-                     const AttentionDims dims, const size_t head_dim_pad) {
+__global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
+                                     const float *RESTRICT K,
+                                     const float *RESTRICT V,
+                                     float *RESTRICT out,
+                                     const AttentionDims dims) {
 
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
@@ -52,6 +53,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     return;
 
   const int head_dim = (int)dims.head_dim;
+  const size_t head_dim_pad = dims.head_dim_padded;
   const float scale = rsqrtf((float)head_dim);
 
   const int b = bh / dims.n_heads;
@@ -69,9 +71,12 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   // Register-based output accumulator
   float out_accum[MAX_D_PER_LANE];
-#pragma unroll
+  // Load Q into register array with bounds check
+  float q_r[MAX_D_PER_LANE];
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
+    const int d = lane_id + i * WARP_SIZE;
     out_accum[i] = 0.0f;
+    q_r[i] = (d < head_dim) ? Q[q_offset + d] : 0.0f;
   }
 
   // Main loop: process 4 keys per iteration
@@ -85,16 +90,13 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     // Compute all 4 dot products first (better ILP)
     float dot0 = 0.0f, dot1 = 0.0f, dot2 = 0.0f, dot3 = 0.0f;
 
-#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      if (d < head_dim) {
-        float q_val = Q[q_offset + d];
-        dot0 += q_val * K[k_offset0 + d];
-        dot1 += q_val * K[k_offset1 + d];
-        dot2 += q_val * K[k_offset2 + d];
-        dot3 += q_val * K[k_offset3 + d];
-      }
+      float q_val = q_r[i];
+      dot0 += q_val * K[k_offset0 + d];
+      dot1 += q_val * K[k_offset1 + d];
+      dot2 += q_val * K[k_offset2 + d];
+      dot3 += q_val * K[k_offset3 + d];
     }
 
     float score0 = warp_reduce_sum_xor(dot0) * scale;
@@ -132,9 +134,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 #pragma unroll
       for (int i = 0; i < MAX_D_PER_LANE; i++) {
         const int d = lane_id + i * WARP_SIZE;
-        if (d < head_dim) {
-          out_accum[i] = out_accum[i] * alpha + weight * V[kv_offset + d];
-        }
+        out_accum[i] = out_accum[i] * alpha + weight * V[kv_offset + d];
       }
       softmax_max = new_max;
     }
@@ -145,12 +145,9 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     const size_t k_offset = bh_offset + k * head_dim_pad;
 
     float dot_partial = 0.0f;
-#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      if (d < head_dim) {
-        dot_partial += Q[q_offset + d] * K[k_offset + d];
-      }
+      dot_partial += q_r[i] * K[k_offset + d];
     }
 
     float score = warp_reduce_sum_xor(dot_partial) * scale;
@@ -164,9 +161,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 #pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      if (d < head_dim) {
-        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
-      }
+      out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
     }
     softmax_max = new_max;
   }
@@ -176,9 +171,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 #pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
-    if (d < head_dim) {
-      out[out_offset + d] = out_accum[i] * inv_sum;
-    }
+    out[out_offset + d] = out_accum[i] * inv_sum;
   }
 }
 
@@ -197,7 +190,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   dim3 block(WARP_SIZE, WARPS_PER_BLOCK);
   dim3 grid(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);
 
-  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims,
-                                        dims.head_dim_padded);
+  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims);
 }
 #endif

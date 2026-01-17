@@ -12,6 +12,15 @@
 // thus we can try to optimize that even more starting to write also Q to
 // registers
 //
+// Indeed performance improves showcasing less memory access but still
+// having a problems of incrased stalls due to inbalance of time required to
+// load Q compared to K and V -> This will be one of next step to do
+//
+// ============================================================================
+// Building on v4's version we can see that there is still no register splling
+// thus we can try to optimize that even more starting to write also Q to
+// registers
+//
 // Indeed the performance improves showcasing less memory access but still
 // having a problems of incrased stalls due to the inbalance of time required to
 // load Q compared to K and V -> This will be one of the next step to do
@@ -24,16 +33,16 @@
 #define MAX_D_PER_LANE 4
 
 __inline__ __device__ float warp_reduce_sum_xor(float val) {
-#pragma unroll
   for (int mask = 16; mask > 0; mask >>= 1)
     val += __shfl_xor_sync(WARP_MASK, val, mask);
   return val;
 }
 
-__global__ void
-cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
-                     const float *RESTRICT V, float *RESTRICT out,
-                     const AttentionDims dims, const size_t head_dim_pad) {
+__global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
+                                     const float *RESTRICT K,
+                                     const float *RESTRICT V,
+                                     float *RESTRICT out,
+                                     const AttentionDims dims) {
 
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
@@ -45,6 +54,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     return;
 
   const int head_dim = (int)dims.head_dim;
+  const size_t head_dim_pad = dims.head_dim_padded;
   const float scale = rsqrtf((float)head_dim);
 
   const int b = bh / dims.n_heads;
@@ -62,11 +72,11 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   // Register-based output accumulator (key optimization!)
   float out_accum[MAX_D_PER_LANE];
-  float q_r[MAX_D_PER_LANE * WARP_SIZE];
+  float q_r[MAX_D_PER_LANE];
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     out_accum[i] = 0.0f;
-    q_r[d] = Q[q_offset + d];
+    q_r[i] = (d < head_dim) ? Q[q_offset + d] : 0.0f;
   }
 
   // Loop over keys (causal: k <= q)
@@ -77,9 +87,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     float dot_partial = 0.0f;
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      if (d < head_dim) {
-        dot_partial += q_r[d] * K[k_offset + d];
-      }
+      dot_partial += q_r[i] * K[k_offset + d];
     }
 
     float score = warp_reduce_sum_xor(dot_partial) * scale;
@@ -94,9 +102,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     // Update output in registers (no global memory access!)
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      if (d < head_dim) {
-        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
-      }
+      out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
     }
 
     softmax_max = new_max;
@@ -104,12 +110,9 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
 
   // Normalize and write to global memory (once!)
   float inv_sum = 1.0f / softmax_sum;
-#pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
-    if (d < head_dim) {
-      out[out_offset + d] = out_accum[i] * inv_sum;
-    }
+    out[out_offset + d] = out_accum[i] * inv_sum;
   }
 }
 
@@ -128,7 +131,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   dim3 block(WARP_SIZE, WARPS_PER_BLOCK);
   dim3 grid(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);
 
-  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims,
-                                        dims.head_dim_padded);
+  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims);
 }
 #endif

@@ -1,8 +1,14 @@
 #pragma once
 
-// Vector padding width for AVX-512 (floats)
+// Vector padding width (floats)
+// - CUDA: 32 (WARP_SIZE) for branchless loops without bounds checks
+// - CPU: 16 (AVX-512) for SIMD vectorization
 #ifndef VEC_PADDING
+#ifdef USE_CUDA
+#define VEC_PADDING 32
+#else
 #define VEC_PADDING 16
+#endif
 #endif
 
 // ============================================================================
