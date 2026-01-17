@@ -74,11 +74,10 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   float out_accum[MAX_D_PER_LANE];
   // Q loaded into registers once (avoids repeated global memory access)
   float q_r[MAX_D_PER_LANE];
-#pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     out_accum[i] = 0.0f;
-    q_r[i] = Q[q_offset + d];
+    q_r[i] = (d < head_dim) ? Q[q_offset + d] : 0.f;
   }
 
   // Loop over keys (causal: k <= q)
@@ -87,7 +86,6 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
     // Q·K dot product (Q from registers)
     float dot_partial = 0.0f;
-#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
       dot_partial += q_r[i] * K[k_offset + d];
@@ -113,7 +111,6 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // Normalize and write to global memory (once!)
   float inv_sum = 1.0f / softmax_sum;
-#pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     out[out_offset + d] = out_accum[i] * inv_sum;

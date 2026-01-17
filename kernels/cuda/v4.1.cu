@@ -73,11 +73,10 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   // Register-based output accumulator and Q in registers (inherited from v4)
   float out_accum[MAX_D_PER_LANE];
   float q_r[MAX_D_PER_LANE];
-#pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     out_accum[i] = 0.0f;
-    q_r[i] = Q[q_offset + d];
+    q_r[i] = (d < head_dim) ? Q[q_offset + d] : 0.f;
   }
 
   // Main loop: process 4 keys per iteration
@@ -106,7 +105,6 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     float score3 = warp_reduce_sum_xor(dot3) * scale;
 
     // Online softmax updates (sequential - order matters)
-#pragma unroll
     for (int ki = 0; ki < KEYS_PER_ITER; ki++) {
       float score;
       switch (ki) {
@@ -132,7 +130,6 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
       softmax_sum = softmax_sum * alpha + weight;
 
-#pragma unroll
       for (int i = 0; i < MAX_D_PER_LANE; i++) {
         const int d = lane_id + i * WARP_SIZE;
         out_accum[i] = out_accum[i] * alpha + weight * V[kv_offset + d];
@@ -159,7 +156,6 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
     softmax_sum = softmax_sum * alpha + weight;
 
-#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
       out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
@@ -169,7 +165,6 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // Normalize and write to global memory
   float inv_sum = 1.0f / softmax_sum;
-#pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     out[out_offset + d] = out_accum[i] * inv_sum;
