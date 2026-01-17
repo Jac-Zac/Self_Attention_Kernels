@@ -6,25 +6,26 @@
 #include <math.h>
 
 // ============================================================================
-// v5.1: Vectorized float4 Loads + Multi-Key Processing
+// vx.1: Vectorized float4 Loads + Multi-Key Processing + Batched Loads
 // ============================================================================
-// Building on v4.2 (multi-key), this version combines float4 vectorized memory
-// access with 4-keys-per-iteration ILP optimization.
+// Building on v4.1's multi-key processing, this version combines float4
+// vectorized memory access with batched K and V loads for better ILP.
 //
 // Key insight:
 // - Each lane handles 4 consecutive floats (for head_dim up to 128)
 // - Instead of 4 scalar loads, use 1 float4 load (128-bit transaction)
 // - GPU memory controller handles 128-bit loads more efficiently
 // - Processing 4 keys per iteration improves ILP
+// - Batching all K and V loads before computation allows memory latency hiding
 //
 // Memory layout assumption:
 // - head_dim_padded is aligned to 128 bytes (32 floats) for coalescing
 // - Each lane loads float4 at offset: lane_id * 4
 //
-// Changes from v4.2:
-// - Q, K, V loaded as float4 instead of scalar floats
-// - Dot product computed from float4 components
-// - Output written as float4
+// Changes from vx:
+// - Process 4 keys per loop iteration (like v4.1)
+// - Batch all 4 K loads, then all 4 V loads before softmax updates
+// - This allows the memory controller to pipeline loads
 //
 // Supported head_dim: up to 128 (32 lanes * 4 floats = 128)
 // For smaller head_dim, unused components are masked out
@@ -118,7 +119,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     const float4 *K4_3 = reinterpret_cast<const float4 *>(
         K + bh_offset + (k + 3) * head_dim_pad);
 
-    // Load K vectors as float4
+    // Batch load all 4 K vectors as float4
     float4 k_vec0 =
         (lane_id * 4 < head_dim) ? K4_0[lane_id] : make_float4(0, 0, 0, 0);
     float4 k_vec1 =
@@ -127,6 +128,26 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
         (lane_id * 4 < head_dim) ? K4_2[lane_id] : make_float4(0, 0, 0, 0);
     float4 k_vec3 =
         (lane_id * 4 < head_dim) ? K4_3[lane_id] : make_float4(0, 0, 0, 0);
+
+    // V pointers for float4 loads
+    const float4 *V4_0 =
+        reinterpret_cast<const float4 *>(V + bh_offset + k * head_dim_pad);
+    const float4 *V4_1 = reinterpret_cast<const float4 *>(
+        V + bh_offset + (k + 1) * head_dim_pad);
+    const float4 *V4_2 = reinterpret_cast<const float4 *>(
+        V + bh_offset + (k + 2) * head_dim_pad);
+    const float4 *V4_3 = reinterpret_cast<const float4 *>(
+        V + bh_offset + (k + 3) * head_dim_pad);
+
+    // Batch load all 4 V vectors as float4
+    float4 v_vec0 =
+        (lane_id * 4 < head_dim) ? V4_0[lane_id] : make_float4(0, 0, 0, 0);
+    float4 v_vec1 =
+        (lane_id * 4 < head_dim) ? V4_1[lane_id] : make_float4(0, 0, 0, 0);
+    float4 v_vec2 =
+        (lane_id * 4 < head_dim) ? V4_2[lane_id] : make_float4(0, 0, 0, 0);
+    float4 v_vec3 =
+        (lane_id * 4 < head_dim) ? V4_3[lane_id] : make_float4(0, 0, 0, 0);
 
     // Compute all 4 dot products
     float dot0 = dot_float4(q_vec, k_vec0, lane_id, head_dim);
@@ -139,25 +160,13 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
     float score2 = warp_reduce_sum_xor(dot2) * scale;
     float score3 = warp_reduce_sum_xor(dot3) * scale;
 
-    // V pointers for float4 loads
-    const float4 *V4_0 =
-        reinterpret_cast<const float4 *>(V + bh_offset + k * head_dim_pad);
-    const float4 *V4_1 = reinterpret_cast<const float4 *>(
-        V + bh_offset + (k + 1) * head_dim_pad);
-    const float4 *V4_2 = reinterpret_cast<const float4 *>(
-        V + bh_offset + (k + 2) * head_dim_pad);
-    const float4 *V4_3 = reinterpret_cast<const float4 *>(
-        V + bh_offset + (k + 3) * head_dim_pad);
-
     // Online softmax update for key 0
     {
       float new_max = fmaxf(softmax_max, score0);
       float alpha = expf(softmax_max - new_max);
       float weight = expf(score0 - new_max);
       softmax_sum = softmax_sum * alpha + weight;
-      float4 v_vec =
-          (lane_id * 4 < head_dim) ? V4_0[lane_id] : make_float4(0, 0, 0, 0);
-      out_accum = fma_float4(out_accum, alpha, weight, v_vec);
+      out_accum = fma_float4(out_accum, alpha, weight, v_vec0);
       softmax_max = new_max;
     }
 
@@ -167,9 +176,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
       float alpha = expf(softmax_max - new_max);
       float weight = expf(score1 - new_max);
       softmax_sum = softmax_sum * alpha + weight;
-      float4 v_vec =
-          (lane_id * 4 < head_dim) ? V4_1[lane_id] : make_float4(0, 0, 0, 0);
-      out_accum = fma_float4(out_accum, alpha, weight, v_vec);
+      out_accum = fma_float4(out_accum, alpha, weight, v_vec1);
       softmax_max = new_max;
     }
 
@@ -179,9 +186,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
       float alpha = expf(softmax_max - new_max);
       float weight = expf(score2 - new_max);
       softmax_sum = softmax_sum * alpha + weight;
-      float4 v_vec =
-          (lane_id * 4 < head_dim) ? V4_2[lane_id] : make_float4(0, 0, 0, 0);
-      out_accum = fma_float4(out_accum, alpha, weight, v_vec);
+      out_accum = fma_float4(out_accum, alpha, weight, v_vec2);
       softmax_max = new_max;
     }
 
@@ -191,9 +196,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
       float alpha = expf(softmax_max - new_max);
       float weight = expf(score3 - new_max);
       softmax_sum = softmax_sum * alpha + weight;
-      float4 v_vec =
-          (lane_id * 4 < head_dim) ? V4_3[lane_id] : make_float4(0, 0, 0, 0);
-      out_accum = fma_float4(out_accum, alpha, weight, v_vec);
+      out_accum = fma_float4(out_accum, alpha, weight, v_vec3);
       softmax_max = new_max;
     }
   }

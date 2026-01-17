@@ -6,14 +6,15 @@
 #include <math.h>
 
 // ============================================================================
-// v4: Register-Based Output Accumulator
+// v4: Register-Based Output Accumulator + Query in Registers
 // ============================================================================
 // Building on v3's online softmax, this version eliminates the
 // read-modify-write pattern in the inner loop by keeping the output accumulator
 // in registers.
 //
-// Key change from v3:
+// Key changes from v3:
 // - Output stored in registers (out_accum[4]) instead of global memory
+// - Q loaded into registers once before the loop (avoids repeated global loads)
 // - Only write to global memory once at the end after normalization
 //
 // Supported head_dim: up to 128 (4 floats per lane * 32 lanes)
@@ -71,19 +72,25 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // Register-based output accumulator (key optimization!)
   float out_accum[MAX_D_PER_LANE];
+  // Q loaded into registers once (avoids repeated global memory access)
+  float q_r[MAX_D_PER_LANE];
+#pragma unroll
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
+    const int d = lane_id + i * WARP_SIZE;
     out_accum[i] = 0.0f;
+    q_r[i] = Q[q_offset + d];
   }
 
   // Loop over keys (causal: k <= q)
   for (int k = 0; k <= q; ++k) {
     const size_t k_offset = bh_offset + k * head_dim_pad;
 
-    // Q·K dot product
+    // Q·K dot product (Q from registers)
     float dot_partial = 0.0f;
+#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
-      dot_partial += Q[q_offset + d] * K[k_offset + d];
+      dot_partial += q_r[i] * K[k_offset + d];
     }
 
     float score = warp_reduce_sum_xor(dot_partial) * scale;

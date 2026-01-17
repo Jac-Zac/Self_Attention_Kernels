@@ -6,10 +6,11 @@
 #include <math.h>
 
 // ============================================================================
-// v5: Vectorized float4 Memory Access
+// vx: Vectorized float4 Memory Access
 // ============================================================================
-// Building on v4.1's clean array structure, this version adds float4 vectorized
-// memory loads for better memory bandwidth utilization.
+// Building on v4's register-based approach (output accumulator + Q in
+// registers), this version adds float4 vectorized memory loads for better
+// memory bandwidth utilization.
 //
 // Key insight:
 // - GPU memory controller handles 128-bit (float4) loads more efficiently
@@ -20,7 +21,7 @@
 // automatically routes loads through the texture cache for `const __restrict__`
 // pointers on compute capability 3.5+. The RESTRICT macro provides this hint.
 //
-// Changes from v4.1:
+// Changes from v4:
 // - Memory layout changed: consecutive floats per lane (lane_id * 4)
 //   instead of strided (lane_id + i * WARP_SIZE)
 // - Load Q, K, V as float4 then unpack to arrays
