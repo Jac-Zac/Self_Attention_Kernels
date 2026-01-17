@@ -36,7 +36,9 @@ CXX_WARN := $(if $(filter clang++,$(CXX)),$(WARN_CLANG),$(WARN_GCC))
 # Combined flags
 CXXFLAGS := $(CFLAGS) $(CXX_WARN) $(DEBUG_FLAGS) $(VERBOSE_FLAGS)
 
+# sm_70 -> v100, sm80 -> H100, sm86 -> RTX3060
 # CUDA_ARCH ?= sm_70
+# CUDA_ARCH ?= sm_80
 CUDA_ARCH ?= sm_86
 NVCC_FLAGS := -O3 -arch=$(CUDA_ARCH) -DUSE_CUDA --use_fast_math $(DEBUG_FLAGS) $(DEBUG_NVCC) $(VERBOSE_FLAGS)
 

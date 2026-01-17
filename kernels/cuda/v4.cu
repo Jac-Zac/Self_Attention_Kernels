@@ -18,11 +18,6 @@
 // - Only write to global memory once at the end after normalization
 //
 // Supported head_dim: up to 128 (4 floats per lane * 32 lanes)
-//
-// NOTE: Bounds checks (d < head_dim) ARE required for:
-// - Reading K/V: prevents reading garbage beyond allocated memory
-// - Writing output: prevents writing beyond the valid output region
-// The Q load already has bounds checks since we load it once at the start.
 // ============================================================================
 
 #define WARP_SIZE 32

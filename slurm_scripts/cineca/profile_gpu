@@ -15,9 +15,9 @@ module load nvhpc
 # Configurable parameters (override via environment)
 # =======================================================
 VERSION="${VERSION:-v0}"
-BATCH="${BATCH:-8}"
-N_HEADS="${N_HEADS:-32}"
-SEQ_LEN="${SEQ_LEN:-2048}"
+BATCH="${BATCH:-4}"
+N_HEADS="${N_HEADS:-8}"
+SEQ_LEN="${SEQ_LEN:-4096}"
 HEAD_DIM="${HEAD_DIM:-128}"
 WARMUP="${WARMUP:-3}"
 ITERS="${ITERS:-5}"
