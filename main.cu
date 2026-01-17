@@ -127,7 +127,6 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < cfg.warmup; i++) {
     cmhsa_forward_cuda(Q_device, K_device, V_device, out_device, workspace,
                        dims);
-    CUDA_CHECK(cudaDeviceSynchronize()); // Add this for profiling
   }
 
   // ============================================================================
@@ -152,7 +151,6 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < cfg.iters; i++) {
     cmhsa_forward_cuda(Q_device, K_device, V_device, out_device, workspace,
                        dims);
-    CUDA_CHECK(cudaDeviceSynchronize()); // Add this for profiling
   }
   CUDA_CHECK(cudaEventRecord(end));
   CUDA_CHECK(cudaEventSynchronize(end));
