@@ -45,8 +45,8 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   const size_t out_offset = q_offset;
 
   // Online softmax state
-  float softmax_max = -FLT_MAX;
-  float softmax_sum = 0.0f;
+  float running_max = -FLT_MAX;
+  float running_sum = 0.0f;
 
   // Initialize output accumulator
   for (size_t d = lane_id; d < head_dim; d += WARP_SIZE)
@@ -64,11 +64,11 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     float score = warp_reduce_sum_xor(dot_partial) * scale;
 
     // Online softmax update
-    float new_max = fmaxf(softmax_max, score);
-    float alpha = expf(softmax_max - new_max);
+    float new_max = fmaxf(running_max, score);
+    float alpha = expf(running_max - new_max);
     float weight = expf(score - new_max);
 
-    softmax_sum = softmax_sum * alpha + weight;
+    running_sum = running_sum * alpha + weight;
 
     // Update output
     for (size_t d = lane_id; d < head_dim; d += WARP_SIZE) {
@@ -76,11 +76,11 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
           out[out_offset + d] * alpha + weight * V[k_offset + d];
     }
 
-    softmax_max = new_max;
+    running_max = new_max;
   }
 
   // Normalize
-  float inv_sum = 1.0f / softmax_sum;
+  float inv_sum = 1.0f / running_sum;
   for (size_t d = lane_id; d < head_dim; d += WARP_SIZE)
     out[out_offset + d] *= inv_sum;
 }
