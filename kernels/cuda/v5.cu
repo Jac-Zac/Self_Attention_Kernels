@@ -6,24 +6,34 @@
 #include <math.h>
 
 // ============================================================================
-// v5: K-Tiling with Shared Memory Score Buffer
+// v5: FlashAttention-2 Style - Sliced-Q with K/V Shared Memory Tiling
 // ============================================================================
-// Building on v4's register-based output accumulator, this version tiles over
-// the key sequence dimension to improve memory access patterns.
+// This implements the FlashAttention-2 algorithm with:
+// - Q split across warps (sliced-Q scheme)
+// - K/V loaded to shared memory and reused by all warps
+// - Online softmax (flash-style) computed incrementally
 //
 // Key changes from v4:
-// - Process keys in tiles of TILE_K instead of one at a time
-// - Store tile scores in shared memory for two-pass softmax within tile:
-//   Pass 1: Compute all Q·K scores for the tile, find tile max
-//   Pass 2: Compute weights and accumulate V contributions
-// - Online softmax maintains running max/sum across tiles
+// - Process TILE_Q queries per block instead of 1 query per warp
+// - Each warp handles QUERIES_PER_WARP queries
+// - K and V tiles loaded cooperatively to shared memory
+// - Reuse K/V tiles across all warps in the block
+// - Significant reduction in global memory bandwidth
+//
+// Supported head_dim: up to 128 (4 floats per lane * 32 lanes)
 // ============================================================================
 
-#define WARP_MASK 0xffffffff
 #define WARP_SIZE 32
 #define WARPS_PER_BLOCK 8
-#define TILE_K 32        // Keys processed per tile (tune for occupancy)
+#define WARP_MASK 0xffffffff
 #define MAX_D_PER_LANE 4 // Support up to head_dim=128
+#define TILE_Q 64        // Queries per block
+#define TILE_K 32        // Keys per tile
+
+// Calculate queries per warp
+#define QUERIES_PER_WARP (TILE_Q / WARPS_PER_BLOCK)
+
+#define MAX_HEAD_DIM MAX_D_PER_LANE * WARP_SIZE
 
 __inline__ __device__ float warp_reduce_sum_xor(float val) {
 #pragma unroll
@@ -39,26 +49,20 @@ __inline__ __device__ float warp_reduce_max_xor(float val) {
   return val;
 }
 
-__inline__ __device__ float warp_broadcast(float val, int src_lane) {
-  return __shfl_sync(WARP_MASK, val, src_lane);
-}
-
 __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
                                      const float *RESTRICT K,
                                      const float *RESTRICT V,
                                      float *RESTRICT out,
                                      const AttentionDims dims) {
 
-  static_assert(TILE_K <= WARP_SIZE,
-                "TILE_K must be smaller or to equal warp size");
-
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
+  const int tid = warp_id * WARP_SIZE + lane_id;
 
-  const int q = blockIdx.x * WARPS_PER_BLOCK + warp_id;
+  const int q_block = blockIdx.x;
   const int bh = blockIdx.y;
 
-  if (q >= (int)dims.seq_len || bh >= (int)(dims.batch * dims.n_heads))
+  if (bh >= (int)(dims.batch * dims.n_heads))
     return;
 
   const int head_dim = (int)dims.head_dim;
@@ -71,122 +75,156 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   const size_t bh_offset = b * (dims.n_heads * dims.seq_len * head_dim_pad) +
                            h * (dims.seq_len * head_dim_pad);
 
-  const size_t q_offset = bh_offset + q * head_dim_pad;
-  const size_t out_offset = q_offset;
+  // Query range for this block
+  const int q_start = q_block * TILE_Q;
+  const int q_end_block = min(q_start + TILE_Q, (int)dims.seq_len);
+  const int num_queries = q_end_block - q_start;
 
-  // Saved scores in shared memory
-  __shared__ float scores[TILE_K * WARPS_PER_BLOCK];
+  // Query range for this warp
+  const int q_warp_start = q_start + warp_id * QUERIES_PER_WARP;
+  const int q_warp_end = min(q_warp_start + QUERIES_PER_WARP, q_end_block);
+  const int num_warp_queries = q_warp_end - q_warp_start;
 
-  // Number of tiles needed to cover all keys (causal: 0 to q_idx inclusive)
-  const int num_keys = q + 1;
-  const int num_k_tiles = CEIL_DIV(num_keys, TILE_K);
+  // ====== Shared Memory ======
+  // K and V tiles: [TILE_K, head_dim]
+  __shared__ float K_smem[TILE_K * MAX_HEAD_DIM];
+  __shared__ float V_smem[TILE_K * MAX_HEAD_DIM];
 
-  // Online softmax running state
-  float running_max = -FLT_MAX;
-  float running_sum = 0.0f;
+  // ====== Register Allocation ======
+  // Q and O for each query this warp handles
+  // Layout: [QUERIES_PER_WARP][MAX_D_PER_LANE]
+  float Q_reg[QUERIES_PER_WARP][MAX_D_PER_LANE];
+  float O_reg[QUERIES_PER_WARP][MAX_D_PER_LANE];
 
-  // Register-based output accumulator
-  float out_accum[MAX_D_PER_LANE];
+  // Online softmax state per query
+  float m[QUERIES_PER_WARP];
+  float l[QUERIES_PER_WARP];
 
-  // Q loaded into registers once (avoids repeated global memory access)
-  float q_reg[MAX_D_PER_LANE];
-  for (int i = 0; i < MAX_D_PER_LANE; i++) {
-    const int d = lane_id + i * WARP_SIZE;
-    out_accum[i] = 0.0f;
-    q_reg[i] = (d < head_dim) ? Q[q_offset + d] : 0.0f;
-  }
+  // ====== Initialize Registers ======
+#pragma unroll
+  for (int q_local = 0; q_local < QUERIES_PER_WARP; q_local++) {
+    const int q = q_warp_start + q_local;
 
-  // Process keys in tiles
-  for (int tile = 0; tile < num_k_tiles; ++tile) {
-    const int k_start = tile * TILE_K;
-    // Causal mask: don't go past q_idx
-    const int k_end = min(k_start + TILE_K, num_keys);
-    const int tile_size = k_end - k_start;
-
-    for (int k_idx = 0; k_idx < tile_size; ++k_idx) {
-      const int k = k_start + k_idx;
-      const size_t k_offset = bh_offset + k * head_dim_pad;
-
-      // Q·K dot product parallelized across lanes
-      // All 32 lanes compute partial dot products
-      float dot_partial = 0.0f;
-      for (int i = 0; i < MAX_D_PER_LANE; i++) {
-        const int d = lane_id + i * WARP_SIZE;
-        if (d < head_dim) {
-          dot_partial += q_reg[i] * K[k_offset + d];
-        }
-      }
-
-      // Reduce across warp lanes to get full dot product
-      // After reduction, ALL lanes have the same score value
-      // Only lane 0 writes to shared memory to avoid redundant writes
-      float score = warp_reduce_sum_xor(dot_partial) * scale;
-      if (lane_id == 0) {
-        scores[k_idx + (warp_id * TILE_K)] = score;
-      }
-
-      // Note: No __syncthreads() needed here because:
-      // 1. Each warp writes to disjoint memory region (scores[warp_id*TILE_K :
-      // (warp_id+1)*TILE_K])
-      // 2. Warp operations to compute the score implicitly synchronize
-    }
-
-    // Each lane loads ONE score from shared memory
-    // This "transposes" the scores: after this, lane i holds score[k_i]
-    // Lanes beyond tile_size get -FLT_MAX so they don't affect max
-    float score =
-        (lane_id < tile_size) ? scores[lane_id + warp_id * TILE_K] : -FLT_MAX;
-
-    // Reduce across TILE_K to get tile max
-    // And also implicitly broadcast via xor max
-    // All lanes now have the tile_max value
-    float tile_max = warp_reduce_max_xor(score);
-
-    // Online softmax update for this tile
-    // new_max = max(running_max, tile_max)
-    // alpha = exp(running_max - new_max)  // rescale factor for old accumulator
-    // Rescale running_sum and out_accum by alpha
-    float new_max = fmaxf(running_max, tile_max);
-    float alpha = expf(running_max - new_max);
-
-    // Rescale previous accumulator
-    running_sum *= alpha;
+    // Load Q from global memory
+#pragma unroll
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
-      out_accum[i] *= alpha;
-    }
-
-    // Second pass: accumulate weighted V using pre-computed scores
-    // Note: We do NOT recompute Q·K dot products here - we read from shared
-    // memory
-    for (int k_idx = 0; k_idx < tile_size; ++k_idx) {
-      const int k = k_start + k_idx;
-      const size_t k_offset = bh_offset + k * head_dim_pad;
-
-      // Read pre-computed score from shared memory and compute weight
-      // All lanes read the same score, then compute same weight
-      float weight = expf(scores[k_idx + (warp_id * TILE_K)] - new_max);
-
-      // Update the running sum
-      running_sum += weight;
-
-      // Accumulate weighted V
-      // Each lane handles different head_dim elements (parallel across d)
-      for (int i = 0; i < MAX_D_PER_LANE; i++) {
-        const int d = lane_id + i * WARP_SIZE;
-        if (d < head_dim) {
-          out_accum[i] += weight * V[k_offset + d];
-        }
+      const int d = lane_id + i * WARP_SIZE;
+      if (q < q_end_block && d < head_dim) {
+        const size_t q_offset = bh_offset + q * head_dim_pad + d;
+        Q_reg[q_local][i] = Q[q_offset];
+        O_reg[q_local][i] = 0.0f;
+      } else {
+        Q_reg[q_local][i] = 0.0f;
+        O_reg[q_local][i] = 0.0f;
       }
     }
-    running_max = new_max;
+
+    // Initialize softmax state
+    m[q_local] = -FLT_MAX;
+    l[q_local] = 0.0f;
   }
 
-  // Normalize and write to global memory (once!)
-  float inv_sum = 1.0f / running_sum;
-  for (int i = 0; i < MAX_D_PER_LANE; i++) {
-    const int d = lane_id + i * WARP_SIZE;
-    if (d < head_dim) {
-      out[out_offset + d] = out_accum[i] * inv_sum;
+  // ====== Loop over K blocks (causal: k <= q_end_block) ======
+  // Process K blocks until we've seen all keys needed for queries in this block
+  const int num_k_blocks = CEIL_DIV(q_end_block, TILE_K);
+
+  for (int k_block = 0; k_block < num_k_blocks; k_block++) {
+    const int k_start = k_block * TILE_K;
+    const int k_end_block = min(k_start + TILE_K, (int)dims.seq_len);
+
+    // ====== Cooperatively Load K, V to Shared Memory ======
+    // All threads in block work together to load K/V tiles
+    const int kv_elements = TILE_K * head_dim;
+    const int threads_per_block = WARPS_PER_BLOCK * WARP_SIZE;
+
+    for (int idx = tid; idx < kv_elements; idx += threads_per_block) {
+      const int k_local = idx / head_dim;
+      const int d = idx % head_dim;
+      const int k = k_start + k_local;
+
+      if (k < k_end_block && d < head_dim) {
+        const size_t kv_offset = bh_offset + k * head_dim_pad + d;
+        K_smem[k_local * MAX_HEAD_DIM + d] = K[kv_offset];
+        V_smem[k_local * MAX_HEAD_DIM + d] = V[kv_offset];
+      } else {
+        K_smem[k_local * MAX_HEAD_DIM + d] = 0.0f;
+        V_smem[k_local * MAX_HEAD_DIM + d] = 0.0f;
+      }
+    }
+
+    __syncthreads();
+
+    // ====== Compute for Each Query in Warp ======
+    for (int q_local = 0; q_local < QUERIES_PER_WARP; q_local++) {
+      const int q = q_warp_start + q_local;
+      if (q >= q_end_block)
+        break;
+
+      // Causal: only process keys where k <= q
+      const int k_end_in_tile = min(k_end_block, q + 1);
+      if (k_start >= q + 1)
+        continue;
+
+      // Effective range of keys in this tile
+      const int k_effective_start = max(k_start, 0);
+      const int k_effective_end = k_end_in_tile;
+
+      // ====== Pass: Compute QK Scores and Update Softmax ======
+      for (int k_local = 0; k_local < (k_effective_end - k_effective_start); k_local++) {
+        const int k = k_effective_start + k_local;
+        const int k_idx = k - k_start;  // Index within the tile
+
+        // Compute Q·K dot product (K from shared memory)
+        float dot_partial = 0.0f;
+#pragma unroll
+        for (int i = 0; i < MAX_D_PER_LANE; i++) {
+          const int d = lane_id + i * WARP_SIZE;
+          if (d < head_dim) {
+            dot_partial += Q_reg[q_local][i] * K_smem[k_idx * MAX_HEAD_DIM + d];
+          }
+        }
+
+        float score = warp_reduce_sum_xor(dot_partial) * scale;
+
+        // Online softmax update
+        float new_max = fmaxf(m[q_local], score);
+        float alpha = expf(m[q_local] - new_max);
+        float weight = expf(score - new_max);
+
+        l[q_local] = l[q_local] * alpha + weight;
+
+        // Update output (V from shared memory)
+#pragma unroll
+        for (int i = 0; i < MAX_D_PER_LANE; i++) {
+          const int d = lane_id + i * WARP_SIZE;
+          if (d < head_dim) {
+            O_reg[q_local][i] =
+                O_reg[q_local][i] * alpha + weight * V_smem[k_idx * MAX_HEAD_DIM + d];
+          }
+        }
+
+        m[q_local] = new_max;
+      }
+    }
+
+    __syncthreads();
+  }
+
+  // ====== Normalize and Write Output ======
+  for (int q_local = 0; q_local < QUERIES_PER_WARP; q_local++) {
+    const int q = q_warp_start + q_local;
+    if (q >= q_end_block)
+      break;
+
+    const float inv_l = 1.0f / l[q_local];
+
+#pragma unroll
+    for (int i = 0; i < MAX_D_PER_LANE; i++) {
+      const int d = lane_id + i * WARP_SIZE;
+      if (d < head_dim) {
+        const size_t out_offset = bh_offset + q * head_dim_pad + d;
+        out[out_offset] = O_reg[q_local][i] * inv_l;
+      }
     }
   }
 }
@@ -204,7 +242,7 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   (void)workspace;
 
   dim3 block(WARP_SIZE, WARPS_PER_BLOCK);
-  dim3 grid(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);
+  dim3 grid(CEIL_DIV(dims.seq_len, TILE_Q), dims.batch * dims.n_heads);
 
   cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims);
 }
