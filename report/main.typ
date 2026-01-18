@@ -82,6 +82,7 @@ Shared memory is stored in the *L1 data cache* of the GPU's *Streaming Multiproc
 When multiple threads in a warp simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict.
 
 == My code ...
+
 NOTE: I'm not memory bound but compute bounod and also wasting a lot of time in stalling ! I should read the reports and learn to read the Roofline !!!
 
 I initially tried malloc Managed but for some reason even though I coundn't really see it clearly from the nsyight system the results were absolutly atrocious.
@@ -98,6 +99,7 @@ Note that in the case of gpu data access dooesn't have to be sequential for each
 
 Since data are loaded from DRAM in burst this allows to load 32 ... at once !
 I was told to add this: --use_fast_math
+The -use_fast_math compiler option of nvcc coerces every functionName() call to the equivalent __functionName() call. It also disables single-precision denormal support and lowers the precision of single-precision division in general.
 Moreover I still have some uncoaleasced memory access so I have to think how to deal with that for key_pos which would make it much faster.
 Typically, a single burst can service 128 bytes – not coincidentally, enough for each of the 32 threads in a warp to load one 32 bit float.
 
