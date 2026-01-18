@@ -149,6 +149,9 @@ Moreover from this we can also use shared meomry to laod ...
 - v4 Saving local results in registeres for the output accumulator
 My code doesn't show local sotres which would indicate register spilling (that is very good pehraps we can even try to use more registers since we are not seeing problems there)
 
+
+I Tried other approaches with tiling but I've not see the improvements I would have hoped for moreover loading then K and V into smem is just decreasing the L1 usage because it goes all to smem and that essentially tanks the speed of my kernel. Adding just overhead to do something that was working well already with L1.
+
 [To be completed in next sections]
 
 = Performance Analysis and Results
