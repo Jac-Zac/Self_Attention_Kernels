@@ -1,3 +1,4 @@
+
 #ifdef USE_CUDA
 #include "../../include/cmhsa_forward.h"
 #include "../../include/utils.hpp"
@@ -71,17 +72,10 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   const size_t q_offset = bh_offset + (size_t)q_idx * hd_pad;
   const size_t out_offset = q_offset;
 
-  // ---------------------------------------------------------------------------
-  // Shared memory tiles
-  // ---------------------------------------------------------------------------
-  __shared__ float K_tile[TILE_K][MAX_D_PER_LANE * WARP_SIZE];
-  __shared__ float V_tile[TILE_K][MAX_D_PER_LANE * WARP_SIZE];
   // Saved scores in shared memory
   __shared__ float scores[WARPS_PER_BLOCK][TILE_K];
 
-  // ---------------------------------------------------------------------------
   // Warp-private registers
-  // ---------------------------------------------------------------------------
   float q_reg[MAX_D_PER_LANE];
   float out_acc[MAX_D_PER_LANE];
 
@@ -95,43 +89,26 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   float running_max = -FLT_MAX;
   float running_sum = 0.f;
 
-  // ---------------------------------------------------------------------------
-  // Loop over K/V tiles (causal)
-  // ---------------------------------------------------------------------------
+  // Loop over K/V tiles
   for (int k_tile = 0; k_tile <= q_idx; k_tile += TILE_K) {
-    const int tile_size = min(TILE_K, q_idx + 1 - k_tile);
-
-    //   //
-    //   -------------------------------------------------------------------------
-    //   // Cooperative load of K/V tiles
-    //   //
-    //   -------------------------------------------------------------------------
-    //   for (int k_idx = warp_id; k_idx < tile_size; k_idx += WARPS_PER_BLOCK)
-    //   {
-    //     const size_t k_off = bh_offset + (k_tile + k_idx) * hd_pad;
-    //     for (int i = 0; i < MAX_D_PER_LANE; ++i) {
-    //       int d = lane_id + i * WARP_SIZE;
-    //       if (d < head_dim) {
-    //         K_tile[k_idx][d] = K[k_off + d];
-    //         V_tile[k_idx][d] = V[k_off + d];
-    //       }
-    //     }
-    //   }
-    //   __syncthreads();
-
+    // -------------------------------------------------------------------------
+    // load of K/V tiles in the future each warp can do it in a cooperative way
+    // perhaps
     // -------------------------------------------------------------------------
     // First pass: tile max
-    // -------------------------------------------------------------------------
     float tile_max = -FLT_MAX;
-    for (int k_idx = 0; k_idx < tile_size; ++k_idx) {
+    for (int k_idx = 0; k_idx < TILE_K; ++k_idx) {
       float dot = 0.f;
-      const int k = k_tile + k_idx;
+      int k = k_tile + k_idx;
+
       const size_t k_offset = bh_offset + k * hd_pad;
       for (int i = 0; i < MAX_D_PER_LANE; ++i) {
         int d = i * WARP_SIZE + lane_id;
-        dot += q_reg[i] * K[k_offset + d];
-        // dot += q_reg[i] * K_tile[k_idx][lane_id + i * WARP_SIZE];
+        if (d < head_dim) {
+          dot += q_reg[i] * K[k_offset + d];
+        }
       }
+
       float score = warp_reduce_sum(dot) * scale;
       tile_max = fmaxf(tile_max, score);
 
@@ -139,12 +116,10 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
         scores[warp_id][k_idx] = score;
       }
     }
+    // Wait to make sure all of the warp have written to score
+    __syncwarp(WARP_MASK);
 
-    tile_max = warp_reduce_max(tile_max);
-
-    // -------------------------------------------------------------------------
     // Online softmax rescale
-    // -------------------------------------------------------------------------
     float new_max = fmaxf(running_max, tile_max);
     float alpha = expf(running_max - new_max);
 
@@ -152,10 +127,13 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     for (int i = 0; i < MAX_D_PER_LANE; ++i)
       out_acc[i] *= alpha;
 
-    // -------------------------------------------------------------------------
+    // Do the multiplication up to tile size
+    const int tile_size = min(TILE_K, q_idx + 1 - k_tile);
+
     // Second pass: accumulate V
-    // -------------------------------------------------------------------------
     for (int k_idx = 0; k_idx < tile_size; ++k_idx) {
+      // for (int k_idx = 0; k_idx < TILE_K; ++k_idx) {
+
       float weight = expf(scores[warp_id][k_idx] - new_max);
       const int k = k_tile + k_idx;
       const size_t k_offset = bh_offset + k * hd_pad;
@@ -163,16 +141,16 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
       running_sum += weight;
       for (int i = 0; i < MAX_D_PER_LANE; ++i) {
         int d = lane_id + i * WARP_SIZE;
-        out_acc[i] += weight * V[k_offset + d];
+        if (d < head_dim) {
+          out_acc[i] += weight * V[k_offset + d];
+        }
       }
     }
 
     running_max = new_max;
   }
 
-  // ---------------------------------------------------------------------------
   // Write output
-  // ---------------------------------------------------------------------------
   float inv_sum = 1.f / running_sum;
   for (int i = 0; i < MAX_D_PER_LANE; ++i) {
     int d = lane_id + i * WARP_SIZE;
