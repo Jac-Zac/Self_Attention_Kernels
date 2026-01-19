@@ -42,6 +42,11 @@ CPU benchmarks in this work are conducted on the Orfeo HPC cluster, using two di
   - *L3 Cache:* 512 MB total
   - *Max Frequency:* 2.6 GHz
 
+- *CUDA GPU (GPU partition):* Using V100 GPU from nvidia
+... 
+
+  Benchmarking was also performed on RTX 3060 and A100 gpu but the main results are the ones caming from the V100
+
 == Scope of the implementation
 
 The focus of this project is the implementation of the *causal scaled dot-product attention kernel*.
