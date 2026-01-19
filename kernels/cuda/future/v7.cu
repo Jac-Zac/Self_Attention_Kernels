@@ -15,8 +15,6 @@
 // Key optimizations:
 // 1. cp.async.cg: Async copy that bypasses L1 cache (direct GMEM->SMEM)
 // 2. Double buffering: Load tile N+1 while computing on tile N
-// 3. XOR swizzling: Bank-conflict-free SMEM access (from v6.2)
-// 4. exp2f + FMA fusion: Optimized softmax (from v4.2)
 //
 // Double Buffering Pipeline:
 //   Iteration 0:
@@ -67,10 +65,11 @@ __inline__ __device__ float warp_reduce_sum_xor(float val) {
 
 // Async load a tile of K and V into shared memory with XOR swizzling
 // Uses cp.async for L1-bypassing async GMEM->SMEM transfer
-__device__ __forceinline__ void async_load_tile(
-    float *K_buf, float *V_buf, const float *K, const float *V,
-    const int k_tile_start, const int max_k, const size_t bh_offset,
-    const int head_dim, const int head_dim_pad, const int thread_id) {
+__device__ __forceinline__ void
+async_load_tile(float *K_buf, float *V_buf, const float *K, const float *V,
+                const int k_tile_start, const int max_k, const size_t bh_offset,
+                const int head_dim, const int head_dim_pad,
+                const int thread_id) {
 
   const int float4s_per_row = head_dim_pad / 4;
   const int float4s_per_tile = TILE_K * float4s_per_row;

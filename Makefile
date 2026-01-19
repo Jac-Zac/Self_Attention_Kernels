@@ -45,7 +45,7 @@ NVCC_FLAGS := -O3 -arch=$(CUDA_ARCH) -DUSE_CUDA --use_fast_math $(DEBUG_FLAGS) $
 # Discovered kernel versions
 SINGLE_VERSIONS := $(basename $(notdir $(wildcard kernels/single_thread/v*.cpp)))
 MULTI_VERSIONS  := $(basename $(notdir $(wildcard kernels/multi_thread/v*.cpp)))
-CUDA_VERSIONS   := $(basename $(notdir $(wildcard kernels/cuda/v*.cu) $(wildcard kernels/cuda/v*.*.cu)))
+CUDA_VERSIONS   := $(basename $(notdir $(wildcard kernels/cuda/v*.cu)))
 
 # Output executable
 EXEC ?= cmhsa.out
