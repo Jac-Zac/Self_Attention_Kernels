@@ -113,10 +113,10 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     }
 
     // Compute both dot products
-    float dot0 = q_vec.x * k0_vec.x + q_vec.y * k0_vec.y +
-                 q_vec.z * k0_vec.z + q_vec.w * k0_vec.w;
-    float dot1 = q_vec.x * k1_vec.x + q_vec.y * k1_vec.y +
-                 q_vec.z * k1_vec.z + q_vec.w * k1_vec.w;
+    float dot0 = q_vec.x * k0_vec.x + q_vec.y * k0_vec.y + q_vec.z * k0_vec.z +
+                 q_vec.w * k0_vec.w;
+    float dot1 = q_vec.x * k1_vec.x + q_vec.y * k1_vec.y + q_vec.z * k1_vec.z +
+                 q_vec.w * k1_vec.w;
 
     float score0 = warp_reduce_sum_xor(dot0) * scale;
     float score1 = warp_reduce_sum_xor(dot1) * scale;
@@ -162,8 +162,8 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
       k_vec = v_vec = make_float4(0.f, 0.f, 0.f, 0.f);
     }
 
-    float dot = q_vec.x * k_vec.x + q_vec.y * k_vec.y +
-                q_vec.z * k_vec.z + q_vec.w * k_vec.w;
+    float dot = q_vec.x * k_vec.x + q_vec.y * k_vec.y + q_vec.z * k_vec.z +
+                q_vec.w * k_vec.w;
     float score = warp_reduce_sum_xor(dot) * scale;
 
     float new_max = fmaxf(running_max, score);
