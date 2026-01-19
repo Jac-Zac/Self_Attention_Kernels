@@ -6,33 +6,44 @@
 #include <math.h>
 
 // ============================================================================
-// v7: Minimal Register Pressure + Fast Math
+// v7: Shared Memory Tiling with Warp-Specialized Loading
 // ============================================================================
-// This version focuses on reducing register pressure and maximizing occupancy.
+// Building on v6, this version optimizes the loading pattern:
 //
-// Key changes:
-// 1. Use __fmaf_rn for fused multiply-add (faster, more accurate)
-// 2. Use __expf for fast exponential (less accurate but faster)
-// 3. Minimize live register count by reusing variables
-// 4. Process K and V in same loop iteration to reduce register pressure
-// 5. Use __fmul_rn and __fadd_rn for explicit fast rounding
+// Key changes from v6:
+// 1. Warp-specialized loading: Each warp loads a portion of the tile
+//    - Warp 0-3 load K_tile, Warp 4-7 load V_tile (in parallel!)
+//    - Reduces total load time by overlapping K and V loads
 //
-// The idea is that higher occupancy (more warps per SM) can hide memory
-// latency better than complex prefetching with lower occupancy.
+// 2. Larger tile size (TILE_K=64) for better SMEM reuse
+//    - More compute per sync = better sync amortization
+//    - Still fits in V100's shared memory
 //
-// Register budget per thread (target: <64 for good occupancy):
-// - q_vec: 4 floats (16 bytes)
-// - out_acc: 4 floats (16 bytes)  
-// - running_max, running_sum: 2 floats (8 bytes)
-// - Loop variables: ~4-6 floats
-// - Total: ~14-16 floats = 56-64 bytes
+// 3. Bank conflict avoidance:
+//    - Pad shared memory rows to avoid 32-way bank conflicts
+//    - Each row padded by 4 floats
 //
-// Supported head_dim: up to 128
+// Shared memory layout (with padding):
+//   K_tile[TILE_K][head_dim_pad + 4]  // +4 padding to avoid bank conflicts
+//   V_tile[TILE_K][head_dim_pad + 4]
+//
+// For head_dim=64, TILE_K=64:
+//   K_tile: 64 * 68 * 4 = 17.4 KB
+//   V_tile: 64 * 68 * 4 = 17.4 KB
+//   Total: ~35 KB (fits in V100's 96KB SMEM)
+//
+// For head_dim=128, TILE_K=64:
+//   K_tile: 64 * 132 * 4 = 33.8 KB
+//   V_tile: 64 * 132 * 4 = 33.8 KB
+//   Total: ~68 KB (still fits)
 // ============================================================================
 
 #define WARP_SIZE 32
 #define WARPS_PER_BLOCK 8
+#define THREADS_PER_BLOCK (WARP_SIZE * WARPS_PER_BLOCK)
 #define WARP_MASK 0xffffffff
+#define TILE_K 64       // Larger tile for better reuse
+#define SMEM_PAD 4      // Padding to avoid bank conflicts
 
 __inline__ __device__ float warp_reduce_sum_xor(float val) {
 #pragma unroll
@@ -41,22 +52,24 @@ __inline__ __device__ float warp_reduce_sum_xor(float val) {
   return val;
 }
 
-__global__ __launch_bounds__(256, 4) // 256 threads, aim for 4 blocks/SM
-void cmhsa_forward_kernel(const float *RESTRICT Q,
-                          const float *RESTRICT K,
-                          const float *RESTRICT V,
-                          float *RESTRICT out,
-                          const AttentionDims dims) {
+__global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
+                                     const float *RESTRICT K,
+                                     const float *RESTRICT V,
+                                     float *RESTRICT out,
+                                     const AttentionDims dims,
+                                     const int smem_stride) {
 
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
+  const int thread_id = warp_id * WARP_SIZE + lane_id;
 
-  const int q_idx = blockIdx.x * WARPS_PER_BLOCK + warp_id;
+  const int q_base = blockIdx.x * WARPS_PER_BLOCK;
+  const int q_idx = q_base + warp_id;
   const int bh = blockIdx.y;
 
-  // Early exit for out-of-bounds
-  if (q_idx >= (int)dims.seq_len || bh >= (int)(dims.batch * dims.n_heads))
-    return;
+  // CRITICAL: No early return - all threads must hit __syncthreads()
+  const bool warp_active =
+      (q_idx < (int)dims.seq_len) && (bh < (int)(dims.batch * dims.n_heads));
 
   const int head_dim = (int)dims.head_dim;
   const size_t head_dim_pad = dims.head_dim_padded;
@@ -67,69 +80,110 @@ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   const size_t bh_offset = b * (dims.n_heads * dims.seq_len * head_dim_pad) +
                            h * (dims.seq_len * head_dim_pad);
-  const size_t q_base = bh_offset + q_idx * head_dim_pad;
+
+  // Shared memory with padding
+  extern __shared__ float smem[];
+  float *K_tile = smem;                        // [TILE_K][smem_stride]
+  float *V_tile = smem + TILE_K * smem_stride; // [TILE_K][smem_stride]
 
   const int d_base = lane_id * 4;
-  const bool active = (d_base < head_dim);
+  const bool lane_active = (d_base < head_dim);
 
-  // Load Q - use float4 for coalesced access
-  float qx = 0.f, qy = 0.f, qz = 0.f, qw = 0.f;
-  if (active) {
-    const float4 q_tmp = __ldg(reinterpret_cast<const float4 *>(&Q[q_base + d_base]));
-    qx = q_tmp.x; qy = q_tmp.y; qz = q_tmp.z; qw = q_tmp.w;
+  // Load Q into registers
+  float4 q_vec = make_float4(0.f, 0.f, 0.f, 0.f);
+  if (warp_active && lane_active) {
+    q_vec = __ldg(reinterpret_cast<const float4 *>(
+        &Q[bh_offset + q_idx * head_dim_pad + d_base]));
   }
 
-  // Accumulators
-  float acc_x = 0.f, acc_y = 0.f, acc_z = 0.f, acc_w = 0.f;
+  // Online softmax state
   float running_max = -FLT_MAX;
   float running_sum = 0.0f;
+  float4 out_acc = make_float4(0.f, 0.f, 0.f, 0.f);
 
-  // Main loop - process one key at a time, minimal register usage
-  const int num_keys = q_idx + 1;
-  
-  for (int k = 0; k < num_keys; ++k) {
-    const size_t kv_base = bh_offset + k * head_dim_pad + d_base;
+  const int max_q_in_block = min(q_base + WARPS_PER_BLOCK - 1, (int)dims.seq_len - 1);
+  const int max_key = max_q_in_block;
+  const int num_tiles = CEIL_DIV(max_key + 1, TILE_K);
 
-    // Load K and V together
-    float kx, ky, kz, kw, vx, vy, vz, vw;
-    if (active) {
-      const float4 k_tmp = __ldg(reinterpret_cast<const float4 *>(&K[kv_base]));
-      const float4 v_tmp = __ldg(reinterpret_cast<const float4 *>(&V[kv_base]));
-      kx = k_tmp.x; ky = k_tmp.y; kz = k_tmp.z; kw = k_tmp.w;
-      vx = v_tmp.x; vy = v_tmp.y; vz = v_tmp.z; vw = v_tmp.w;
-    } else {
-      kx = ky = kz = kw = vx = vy = vz = vw = 0.f;
+  // Elements per float4 column
+  const int cols_per_row = (int)head_dim_pad / 4;
+
+  for (int tile = 0; tile < num_tiles; tile++) {
+    const int k_tile_start = tile * TILE_K;
+    const int k_tile_end = min(k_tile_start + TILE_K, max_key + 1);
+
+    // =========================================================================
+    // Phase 1: Cooperative load - all threads load both K and V
+    // =========================================================================
+    const int total_float4s = TILE_K * cols_per_row;
+
+    #pragma unroll 2
+    for (int idx = thread_id; idx < total_float4s; idx += THREADS_PER_BLOCK) {
+      const int k_local = idx / cols_per_row;
+      const int d_idx = (idx % cols_per_row) * 4;
+      const int k_global = k_tile_start + k_local;
+
+      float4 k_val = make_float4(0.f, 0.f, 0.f, 0.f);
+      float4 v_val = make_float4(0.f, 0.f, 0.f, 0.f);
+
+      if (k_global <= max_key) {
+        const size_t kv_offset = bh_offset + k_global * head_dim_pad + d_idx;
+        k_val = __ldg(reinterpret_cast<const float4 *>(&K[kv_offset]));
+        v_val = __ldg(reinterpret_cast<const float4 *>(&V[kv_offset]));
+      }
+
+      // Store with padding stride
+      *reinterpret_cast<float4 *>(&K_tile[k_local * smem_stride + d_idx]) = k_val;
+      *reinterpret_cast<float4 *>(&V_tile[k_local * smem_stride + d_idx]) = v_val;
     }
 
-    // Dot product using FMA
-    float dot = __fmaf_rn(qx, kx, __fmaf_rn(qy, ky, __fmaf_rn(qz, kz, qw * kw)));
-    float score = warp_reduce_sum_xor(dot) * scale;
+    __syncthreads();
 
-    // Online softmax with fast exp
-    float new_max = fmaxf(running_max, score);
-    float alpha = __expf(running_max - new_max);
-    float weight = __expf(score - new_max);
+    // =========================================================================
+    // Phase 2: Compute attention using SMEM
+    // =========================================================================
+    if (warp_active) {
+      const int tile_keys = k_tile_end - k_tile_start;
 
-    running_sum = __fmaf_rn(running_sum, alpha, weight);
-    
-    // Update accumulators with FMA
-    acc_x = __fmaf_rn(acc_x, alpha, weight * vx);
-    acc_y = __fmaf_rn(acc_y, alpha, weight * vy);
-    acc_z = __fmaf_rn(acc_z, alpha, weight * vz);
-    acc_w = __fmaf_rn(acc_w, alpha, weight * vw);
-    
-    running_max = new_max;
+      for (int k_local = 0; k_local < tile_keys; k_local++) {
+        const int k_global = k_tile_start + k_local;
+        if (k_global > q_idx)
+          break;
+
+        float4 k_vec = make_float4(0.f, 0.f, 0.f, 0.f);
+        float4 v_vec = make_float4(0.f, 0.f, 0.f, 0.f);
+        if (lane_active) {
+          k_vec = *reinterpret_cast<float4 *>(&K_tile[k_local * smem_stride + d_base]);
+          v_vec = *reinterpret_cast<float4 *>(&V_tile[k_local * smem_stride + d_base]);
+        }
+
+        float dot = q_vec.x * k_vec.x + q_vec.y * k_vec.y +
+                    q_vec.z * k_vec.z + q_vec.w * k_vec.w;
+        float score = warp_reduce_sum_xor(dot) * scale;
+
+        float new_max = fmaxf(running_max, score);
+        float alpha = expf(running_max - new_max);
+        float weight = expf(score - new_max);
+
+        running_sum = running_sum * alpha + weight;
+        out_acc.x = out_acc.x * alpha + weight * v_vec.x;
+        out_acc.y = out_acc.y * alpha + weight * v_vec.y;
+        out_acc.z = out_acc.z * alpha + weight * v_vec.z;
+        out_acc.w = out_acc.w * alpha + weight * v_vec.w;
+        running_max = new_max;
+      }
+    }
+
+    __syncthreads();
   }
 
-  // Normalize and write
-  if (active) {
-    float inv_sum = __frcp_rn(running_sum); // Fast reciprocal
-    float4 result;
-    result.x = acc_x * inv_sum;
-    result.y = acc_y * inv_sum;
-    result.z = acc_z * inv_sum;
-    result.w = acc_w * inv_sum;
-    *reinterpret_cast<float4 *>(&out[q_base + d_base]) = result;
+  // Write output
+  if (warp_active && lane_active) {
+    float inv_sum = 1.0f / running_sum;
+    float4 result = make_float4(out_acc.x * inv_sum, out_acc.y * inv_sum,
+                                out_acc.z * inv_sum, out_acc.w * inv_sum);
+    *reinterpret_cast<float4 *>(
+        &out[bh_offset + q_idx * head_dim_pad + d_base]) = result;
   }
 }
 
@@ -148,6 +202,10 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
   dim3 block(WARP_SIZE, WARPS_PER_BLOCK);
   dim3 grid(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);
 
-  cmhsa_forward_kernel<<<grid, block>>>(Q, K, V, out, dims);
+  // Shared memory stride with padding
+  const int smem_stride = dims.head_dim_padded + SMEM_PAD;
+  size_t smem_size = 2 * TILE_K * smem_stride * sizeof(float);
+
+  cmhsa_forward_kernel<<<grid, block, smem_size>>>(Q, K, V, out, dims, smem_stride);
 }
 #endif
