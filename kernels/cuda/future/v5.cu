@@ -6,24 +6,30 @@
 #include <math.h>
 
 // ============================================================================
-// v5: K-Tiling with Shared Memory Score Buffer
+// v4.1: Multi-Key Processing (4 keys per iteration)
 // ============================================================================
-// Building on v4's register-based output accumulator, this version tiles over
-// the key sequence dimension to improve memory access patterns.
+// Building on v4's register-based output accumulator and Q in registers, this
+// version processes 4 keys per iteration to improve instruction-level
+// parallelism (ILP).
 //
-// Key changes from v4:
-// - Process keys in tiles of TILE_K instead of one at a time
-// - Store tile scores in shared memory for two-pass softmax within tile:
-//   Pass 1: Compute all Q·K scores for the tile, find tile max
-//   Pass 2: Compute weights and accumulate V contributions
-// - Online softmax maintains running max/sum across tiles
+// Key insight:
+// - MUFU.EX2 (expf) has ~16-20 cycle latency
+// - By computing 4 dot products before softmax updates, we overlap computation
+// - While exp results compute, we're loading data for next operations
+//
+// Changes from v4:
+// - Process 4 keys per loop iteration
+// - Compute all 4 dot products before any softmax update
+// - Handle remainder keys (0-3) after main loop
+//
+// Supported head_dim: up to 128
 // ============================================================================
 
-#define WARP_MASK 0xffffffff
 #define WARP_SIZE 32
 #define WARPS_PER_BLOCK 8
-#define TILE_K 32        // Keys processed per tile (tune for occupancy)
+#define WARP_MASK 0xffffffff
 #define MAX_D_PER_LANE 4 // Support up to head_dim=128
+#define KEYS_PER_ITER 4
 
 __inline__ __device__ float warp_reduce_sum_xor(float val) {
 #pragma unroll
@@ -32,22 +38,12 @@ __inline__ __device__ float warp_reduce_sum_xor(float val) {
   return val;
 }
 
-__inline__ __device__ float warp_reduce_max_xor(float val) {
-#pragma unroll
-  for (int mask = 16; mask > 0; mask >>= 1)
-    val = fmaxf(val, __shfl_xor_sync(WARP_MASK, val, mask));
-  return val;
-}
-
-__inline__ __device__ float warp_broadcast(float val, int src_lane) {
-  return __shfl_sync(WARP_MASK, val, src_lane);
-}
-
 __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
                                      const float *RESTRICT K,
                                      const float *RESTRICT V,
                                      float *RESTRICT out,
                                      const AttentionDims dims) {
+
   const int warp_id = threadIdx.y;
   const int lane_id = threadIdx.x;
 
@@ -70,114 +66,114 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   const size_t q_offset = bh_offset + q * head_dim_pad;
   const size_t out_offset = q_offset;
 
-  // Saved scores in shared memory
-  __shared__ float scores[WARPS_PER_BLOCK][TILE_K];
+  // Online softmax state
+  float softmax_max = -FLT_MAX;
+  float softmax_sum = 0.0f;
 
-  // Number of tiles needed to cover all keys (causal: 0 to q_idx inclusive)
-  const int num_keys = q + 1;
-  const int num_k_tiles = CEIL_DIV(num_keys, TILE_K);
-
-  // Online softmax running state
-  float running_max = -FLT_MAX;
-  float running_sum = 0.0f;
-
-  // Register-based output accumulator
+  // Register-based output accumulator and Q in registers (inherited from v4)
   float out_accum[MAX_D_PER_LANE];
-
-  // Q loaded into registers once (avoids repeated global memory access)
-  float q_reg[MAX_D_PER_LANE];
+  float q_r[MAX_D_PER_LANE];
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     out_accum[i] = 0.0f;
-    q_reg[i] = (d < head_dim) ? Q[q_offset + d] : 0.0f;
+    q_r[i] = (d < head_dim) ? Q[q_offset + d] : 0.f;
   }
 
-  // Process keys in tiles
-  for (int tile = 0; tile < num_k_tiles; ++tile) {
-    const int k_start = tile * TILE_K;
-    // Causal mask: don't go past q_idx
-    const int k_end = min(k_start + TILE_K, num_keys);
-    const int tile_size = k_end - k_start;
+  // Main loop: process 4 keys per iteration
+  int k = 0;
+  for (; k + 3 <= q; k += KEYS_PER_ITER) {
+    const size_t k_offset0 = bh_offset + k * head_dim_pad;
+    const size_t k_offset1 = bh_offset + (k + 1) * head_dim_pad;
+    const size_t k_offset2 = bh_offset + (k + 2) * head_dim_pad;
+    const size_t k_offset3 = bh_offset + (k + 3) * head_dim_pad;
 
-    for (int k_idx = 0; k_idx < tile_size; ++k_idx) {
-      const int k = k_start + k_idx;
-      const size_t k_offset = bh_offset + k * head_dim_pad;
+    // Compute all 4 dot products first (better ILP)
+    // NOTE: bounds check required to avoid reading garbage beyond head_dim
+    float dot0 = 0.0f, dot1 = 0.0f, dot2 = 0.0f, dot3 = 0.0f;
 
-      // Q·K dot product parallelized across lanes
-      // All 32 lanes compute partial dot products
-      float dot_partial = 0.0f;
-      for (int i = 0; i < MAX_D_PER_LANE; i++) {
-        const int d = lane_id + i * WARP_SIZE;
-        if (d < head_dim) {
-          dot_partial += q_reg[i] * K[k_offset + d];
-        }
-      }
-
-      // Reduce across warp lanes to get full dot product
-      // After reduction, ALL lanes have the same score value
-      // Only lane 0 writes to shared memory to avoid redundant writes
-      float score = warp_reduce_sum_xor(dot_partial) * scale;
-      if (lane_id == 0) {
-        scores[warp_id][k_idx] = score;
-      }
-
-      // Note: No __syncthreads() needed here because:
-      // 1. Each warp writes to disjoint memory region (scores[warp_id*TILE_K :
-      // (warp_id+1)*TILE_K])
-      // 2. Warp operations to compute the score implicitly synchronize
-    }
-
-    // Each lane loads ONE score from shared memory
-    // This "transposes" the scores: after this, lane i holds score[k_i]
-    // Lanes beyond tile_size get -FLT_MAX so they don't affect max
-    float score = (lane_id < tile_size) ? scores[warp_id][lane_id] : -FLT_MAX;
-
-    // Reduce across TILE_K to get tile max
-    // And also implicitly broadcast via xor max
-    // All lanes now have the tile_max value
-    float tile_max = warp_reduce_max_xor(score);
-
-    // Online softmax update for this tile
-    // new_max = max(running_max, tile_max)
-    // alpha = exp(running_max - new_max)  // rescale factor for old accumulator
-    // Rescale running_sum and out_accum by alpha
-    float new_max = fmaxf(running_max, tile_max);
-    float alpha = expf(running_max - new_max);
-
-    // Rescale previous accumulator
-    running_sum *= alpha;
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
-      out_accum[i] *= alpha;
+      const int d = lane_id + i * WARP_SIZE;
+      if (d < head_dim) {
+        float q_val = q_r[i];
+        dot0 += q_val * K[k_offset0 + d];
+        dot1 += q_val * K[k_offset1 + d];
+        dot2 += q_val * K[k_offset2 + d];
+        dot3 += q_val * K[k_offset3 + d];
+      }
     }
 
-    // Second pass: accumulate weighted V using pre-computed scores
-    // Note: We do NOT recompute Q·K dot products here - we read from shared
-    // memory
-    for (int k_idx = 0; k_idx < tile_size; ++k_idx) {
-      const int k = k_start + k_idx;
-      const size_t k_offset = bh_offset + k * head_dim_pad;
+    float score0 = warp_reduce_sum_xor(dot0) * scale;
+    float score1 = warp_reduce_sum_xor(dot1) * scale;
+    float score2 = warp_reduce_sum_xor(dot2) * scale;
+    float score3 = warp_reduce_sum_xor(dot3) * scale;
 
-      // Read pre-computed score from shared memory and compute weight
-      // All lanes read the same score, then compute same weight
-      float weight = expf(scores[warp_id][k_idx] - new_max);
+    // Online softmax updates (sequential - order matters)
+    for (int ki = 0; ki < KEYS_PER_ITER; ki++) {
+      float score;
+      switch (ki) {
+      case 0:
+        score = score0;
+        break;
+      case 1:
+        score = score1;
+        break;
+      case 2:
+        score = score2;
+        break;
+      default:
+        score = score3;
+        break;
+      }
 
-      // Update the running sum
-      running_sum += weight;
+      size_t kv_offset = bh_offset + (k + ki) * head_dim_pad;
 
-      // Accumulate weighted V
-      // Each lane handles different head_dim elements (parallel across d)
+      float new_max = fmaxf(softmax_max, score);
+      float alpha = expf(softmax_max - new_max);
+      float weight = expf(score - new_max);
+
+      softmax_sum = softmax_sum * alpha + weight;
+
       for (int i = 0; i < MAX_D_PER_LANE; i++) {
         const int d = lane_id + i * WARP_SIZE;
         if (d < head_dim) {
-          out_accum[i] += weight * V[k_offset + d];
+          out_accum[i] = out_accum[i] * alpha + weight * V[kv_offset + d];
         }
       }
+      softmax_max = new_max;
     }
-    running_max = new_max;
   }
 
-  // Normalize and write to global memory (once!)
-  float inv_sum = 1.0f / running_sum;
+  // Handle remaining keys (0-3)
+  for (; k <= q; ++k) {
+    const size_t k_offset = bh_offset + k * head_dim_pad;
+
+    float dot_partial = 0.0f;
+    for (int i = 0; i < MAX_D_PER_LANE; i++) {
+      const int d = lane_id + i * WARP_SIZE;
+      if (d < head_dim) {
+        dot_partial += q_r[i] * K[k_offset + d];
+      }
+    }
+
+    float score = warp_reduce_sum_xor(dot_partial) * scale;
+
+    float new_max = fmaxf(softmax_max, score);
+    float alpha = expf(softmax_max - new_max);
+    float weight = expf(score - new_max);
+
+    softmax_sum = softmax_sum * alpha + weight;
+
+    for (int i = 0; i < MAX_D_PER_LANE; i++) {
+      const int d = lane_id + i * WARP_SIZE;
+      if (d < head_dim) {
+        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
+      }
+    }
+    softmax_max = new_max;
+  }
+
+  // Normalize and write to global memory
+  float inv_sum = 1.0f / softmax_sum;
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     if (d < head_dim) {
@@ -197,8 +193,6 @@ __host__ void cmhsa_forward_cuda(const float *RESTRICT Q,
                                  float *RESTRICT workspace,
                                  const AttentionDims dims) {
   (void)workspace;
-  static_assert(TILE_K <= WARP_SIZE,
-                "TILE_K must be smaller or to equal warp size");
 
   dim3 block(WARP_SIZE, WARPS_PER_BLOCK);
   dim3 grid(CEIL_DIV(dims.seq_len, WARPS_PER_BLOCK), dims.batch * dims.n_heads);

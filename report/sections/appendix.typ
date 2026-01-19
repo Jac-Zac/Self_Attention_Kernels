@@ -54,3 +54,28 @@ The following table presents detailed benchmark results for the multi-threaded C
   ),
   caption: [Multi-threaded kernel strong scaling results on AMD EPYC 9654 (Zen4, 128 cores). Benchmark configuration: batch=4, heads=32, seq_len=4096, iters=10. Speedup is relative to v1 with 1 thread (20.6130s).],
 ) <tab:benchmark_strong_scaling>
+
+=== CUDA Kernel Results
+
+The following table presents detailed benchmark results for the CUDA kernel implementations compared against PyTorch GPU baselines.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    inset: 8pt,
+    align: center,
+    stroke: none,
+    table.hline(),
+    table.header([*Version*], [*Time (s)*], [*Speedup vs Naive*], [*Speedup vs SDPA*]),
+    table.hline(),
+    [PyTorch naive], [0.0527], [1.00×], [0.20×],
+    [PyTorch SDPA], [0.0106], [4.98×], [1.00×],
+    table.hline(stroke: 0.5pt),
+    [v0], [2.7180], [0.02×], [0.004×],
+    [v1], [0.2957], [0.18×], [0.04×],
+    [v2], [0.2161], [0.24×], [0.05×],
+    [v3], [0.2048], [0.26×], [0.05×],
+    table.hline(),
+  ),
+  caption: [CUDA kernel benchmark results on NVIDIA V100. Benchmark configuration: batch=4, heads=32, seq_len=4096, head_dim=128. Speedup values are relative to PyTorch naive (higher is better for naive column, indicates fraction of naive speed for SDPA column).],
+) <tab:benchmark_cuda>

@@ -42,10 +42,22 @@ CPU benchmarks in this work are conducted on the Orfeo HPC cluster, using two di
   - *L3 Cache:* 512 MB total
   - *Max Frequency:* 2.6 GHz
 
-- *CUDA GPU (GPU partition):* Using V100 GPU from nvidia
-... 
+- *CUDA GPU (GPU partition):* GPU benchmarks are conducted primarily on #link("https://www.nvidia.com/en-us/data-center/v100/")[NVIDIA Tesla V100] accelerators.
 
-  Benchmarking was also performed on RTX 3060 and A100 gpu but the main results are the ones caming from the V100
+  Key specifications:
+  - *Architecture:* Volta (GV100), 5120 CUDA Cores, 640 Tensor Cores
+  - *Streaming Multiprocessors:* 80 SMs
+  - *Memory:* 32 GB HBM2, 900 GB/s bandwidth
+  - *L2 Cache:* 6 MB
+  - *Shared Memory:* Up to 96 KB per SM (configurable with L1)
+  - *Max Warps per SM:* 64 (2048 threads)
+  - *Compute Capability:* 7.0
+
+  Additional profiling and testing was performed on:
+  - *NVIDIA RTX 3060* (Ampere, GA106): Used for Nsight Compute profiling due to local availability. 12 GB GDDR6, 3584 CUDA cores.
+  - *NVIDIA A100* (Ampere, GA100): Brief validation runs. 40/80 GB HBM2e, 6912 CUDA cores, 432 Tensor Cores.
+
+  The main benchmark results reported in this work are from the V100
 
 == Scope of the implementation
 
@@ -55,27 +67,19 @@ As such, the linear input projections $bold(X) bold(W)_q$, $bold(X) bold(W)_k$, 
 Furthermore, this implementation computes attention independently for each head, and correctly allocated.
 Head concatenation, output projection $bold(W)_o$, and residual connections are also intentionally omitted, as they can be performed separately from the attention kernel I will focus on.
 
+- *Additional:* I have to evaluate the feasibility of implmenting all of this and possibly adding Ring Attentention @liu2023ringattentionblockwisetransformers where comunication would happen via MPI.
+
 == Motivation and Scope
 
 The quadratic complexity of self-attention ($cal(O)(T^2 d)$ for sequence length $T$ and model dimension $d$) presents fundamental challenges:
 
-- *Not SIMD optimize*: The computation doesn't leverage SIMD instructions effectivly in the naive implementations
+- *Not SIMD optimized*: The computation doesn't leverage SIMD instructions effectively in naive implementations
 - *Memory bandwidth limitations*: Naive implementations repeatedly transfer large matrices between main memory and compute units
 
 Recent work like FlashAttention @dao2022flashattention demonstrates that careful algorithm-hardware co-design can achieve significant speedups (2-4× for training, 10-20× for long-context inference).
-Though I will start by simply implementing versions from my previous knowledge and then building up to more and more sophisticated tricks.
+In this work, I start from simple implementations based on prior knowledge and progressively introduce more sophisticated optimization techniques.
 
 == Reproducibility
 
 Repository: #link("https://github.com/Jac-Zac/Self_Attention_Kernels")[github.com/Jac-Zac/Self_Attention_Kernels].
-All kernels, tests (vs PyTorch SDPA), and benchmarking scripts used for this report are included.
-
-Additionally an old additional branch named `no_allign` was used to perform some of the benchmakring in the first chapter.
-
-== Additional Notes
-
-// TODO:
-
-I have to evaluate the feasibility of implmeenting all of this and possibly adding Ring Attentention @liu2023ringattentionblockwisetransformers where comunication would happen via MPI.
-
-Though I will first implement SIMD and CUDA versions and then review the paper on Ring Attention.
+All kernels, tests (validated against PyTorch SDPA), and benchmarking scripts used for this report are included.
