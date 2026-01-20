@@ -135,9 +135,10 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
             &K_tile[k_local * head_dim_pad + d_base]);
 
         // Dot product
-        float dot = q_vec.x * k_vec.x + q_vec.y * k_vec.y + q_vec.z * k_vec.z +
-                    q_vec.w * k_vec.w;
-        float score = warp_reduce_sum_xor(dot) * scale;
+        float dot = (q_vec.x * k_vec.x + q_vec.y * k_vec.y + q_vec.z * k_vec.z +
+                     q_vec.w * k_vec.w) *
+                    scale;
+        float score = warp_reduce_sum_xor(dot);
 
         // Online softmax
         float new_max = fmaxf(running_max, score);
