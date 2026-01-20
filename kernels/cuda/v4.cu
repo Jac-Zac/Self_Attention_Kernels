@@ -18,6 +18,9 @@
 // - Only write to global memory once at the end after normalization
 //
 // Supported head_dim: up to 128 (4 floats per lane * 32 lanes)
+//
+// NOTE: That just for this kernel but not for the future one moving the scaling
+// to q helps quite a bit though I'll not do it because later it doesn't help
 // ============================================================================
 
 #define WARP_SIZE 32
