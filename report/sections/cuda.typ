@@ -91,6 +91,8 @@ float val = smem[threadIdx.x * 32];  // all bank 0
 
 Bank conflicts can increase shared memory latency by up to 32×.
 In our implementations, we mostly avoid shared memory for the attention weights workspace, partly due to these concerns and partly due to occupancy limitations discussed later.
+But this is something one has to be very carefull of. Though one can read more about this #link("https://feldmann.nyc/blog/smem-microbenchmarks")[here]
+
 
 == Benchmark Configuration
 

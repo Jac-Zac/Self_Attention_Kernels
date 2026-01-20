@@ -164,7 +164,7 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // Write output
   if (warp_active && lane_active) {
-    float inv_sum = 1.0f / running_sum;
+    float inv_sum = 1.0f / (running_sum + 1e-9f);
     float4 result = make_float4(out_acc.x * inv_sum, out_acc.y * inv_sum,
                                 out_acc.z * inv_sum, out_acc.w * inv_sum);
     *reinterpret_cast<float4 *>(

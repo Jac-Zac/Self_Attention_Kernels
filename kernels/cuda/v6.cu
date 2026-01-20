@@ -15,13 +15,15 @@
 //
 // Note to me: It is very important where you load things in registeres to avoid
 // having too many registers so v should only be loaded when need
+//
+// Tile size has been tuned to achieve better occupancy and less overhead
 // ============================================================================
 
 #define WARP_SIZE 32
 #define WARPS_PER_BLOCK 8
 #define THREADS_PER_BLOCK (WARP_SIZE * WARPS_PER_BLOCK)
 #define WARP_MASK 0xffffffff
-#define TILE_K 32
+#define TILE_K 8
 
 __inline__ __device__ float warp_reduce_sum_xor(float val) {
 #pragma unroll
@@ -164,7 +166,7 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // Write output
   if (warp_active && lane_active) {
-    float inv_sum = 1.0f / running_sum;
+    float inv_sum = 1.0f / (running_sum + 1e-9f);
     float4 result = make_float4(out_acc.x * inv_sum, out_acc.y * inv_sum,
                                 out_acc.z * inv_sum, out_acc.w * inv_sum);
     *reinterpret_cast<float4 *>(
