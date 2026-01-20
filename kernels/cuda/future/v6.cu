@@ -6,15 +6,15 @@
 #include <math.h>
 
 // ============================================================================
-// v7: Shared Memory Tiling with float4 Vectorized Loads
+// v6: Shared Memory Tiling with float4 Vectorized Loads
 // ============================================================================
-// Same as v6 but uses float4 for memory operations to improve bandwidth.
-//
-// Key differences from v6:
+// Key differences from v4.1:
 // - float4 vectorized loads for K/V into shared memory
 // - float4 vectorized reads from shared memory
 // - Requires head_dim to be multiple of 4 (which it is with padding)
 //
+// Note to me: It is very important where you load things in registeres to avoid
+// having too many registers so v should only be loaded when need
 // ============================================================================
 
 #define WARP_SIZE 32
@@ -65,7 +65,8 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // For float4 access pattern: each lane handles 4 consecutive floats
   const int d_base = lane_id * 4;
-  const bool lane_active = (d_base < head_dim); // At least one element valid
+  // At least one element valid
+  const bool lane_active = (d_base < head_dim);
 
   // Load Q as float4
   float4 q_vec = make_float4(0.f, 0.f, 0.f, 0.f);
@@ -128,12 +129,9 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
         // Load K and V from shared memory as float4
         float4 k_vec = make_float4(0.f, 0.f, 0.f, 0.f);
-        float4 v_vec = make_float4(0.f, 0.f, 0.f, 0.f);
         if (lane_active) {
           k_vec = *reinterpret_cast<float4 *>(
               &K_tile[k_local * head_dim_pad + d_base]);
-          v_vec = *reinterpret_cast<float4 *>(
-              &V_tile[k_local * head_dim_pad + d_base]);
         }
 
         // Dot product
@@ -145,6 +143,12 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
         float new_max = fmaxf(running_max, score);
         float alpha = expf(running_max - new_max);
         float weight = expf(score - new_max);
+
+        float4 v_vec = make_float4(0.f, 0.f, 0.f, 0.f);
+        if (lane_active) {
+          v_vec = *reinterpret_cast<float4 *>(
+              &V_tile[k_local * head_dim_pad + d_base]);
+        }
 
         running_sum = running_sum * alpha + weight;
         out_acc.x = out_acc.x * alpha + weight * v_vec.x;
