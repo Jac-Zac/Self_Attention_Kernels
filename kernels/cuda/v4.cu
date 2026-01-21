@@ -60,8 +60,11 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   const size_t bh_offset = b * (dims.n_heads * dims.seq_len * head_dim_pad) +
                            h * (dims.seq_len * head_dim_pad);
 
-  const size_t q_offset = bh_offset + q * head_dim_pad;
-  const size_t out_offset = q_offset;
+  // Precompute base pointers
+  const float *Q_ptr = Q + bh_offset + q * head_dim_pad;
+  const float *K_base = K + bh_offset;
+  const float *V_base = V + bh_offset;
+  float *out_ptr = out + bh_offset + q * head_dim_pad;
 
   // Online softmax state
   float running_max = -FLT_MAX;
@@ -69,24 +72,24 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // Register-based output accumulator (key optimization!)
   float out_accum[MAX_D_PER_LANE];
-  // Q loaded into registers once (avoids repeated global memory access)
   float q_r[MAX_D_PER_LANE];
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     out_accum[i] = 0.0f;
-    q_r[i] = (d < head_dim) ? Q[q_offset + d] : 0.f;
+    q_r[i] = (d < head_dim) ? Q_ptr[d] : 0.f;
   }
 
   // Loop over keys (causal: k <= q)
   for (int k = 0; k <= q; ++k) {
-    const size_t k_offset = bh_offset + k * head_dim_pad;
+    const float *K_ptr = K_base + k * head_dim_pad;
+    const float *V_ptr = V_base + k * head_dim_pad;
 
     // Q·K dot product (Q from registers)
     float dot_partial = 0.0f;
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
       if (d < head_dim) {
-        dot_partial += q_r[i] * K[k_offset + d];
+        dot_partial += q_r[i] * K_ptr[d];
       }
     }
 
@@ -103,7 +106,7 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     for (int i = 0; i < MAX_D_PER_LANE; i++) {
       const int d = lane_id + i * WARP_SIZE;
       if (d < head_dim) {
-        out_accum[i] = out_accum[i] * alpha + weight * V[k_offset + d];
+        out_accum[i] = out_accum[i] * alpha + weight * V_ptr[d];
       }
     }
 
@@ -115,7 +118,7 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   for (int i = 0; i < MAX_D_PER_LANE; i++) {
     const int d = lane_id + i * WARP_SIZE;
     if (d < head_dim) {
-      out[out_offset + d] = out_accum[i] * inv_sum;
+      out_ptr[d] = out_accum[i] * inv_sum;
     }
   }
 }

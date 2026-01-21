@@ -43,7 +43,13 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   const size_t bh_offset = b * (dims.n_heads * dims.seq_len * head_dim_pad) +
                            h * (dims.seq_len * head_dim_pad);
 
-  const size_t q_offset = bh_offset + q * head_dim_pad;
+  // Precompute base float4 pointers
+  const float4 *Q_ptr =
+      reinterpret_cast<const float4 *>(Q + bh_offset + q * head_dim_pad);
+  const float4 *K_base = reinterpret_cast<const float4 *>(K + bh_offset);
+  const float4 *V_base = reinterpret_cast<const float4 *>(V + bh_offset);
+  float4 *out_ptr =
+      reinterpret_cast<float4 *>(out + bh_offset + q * head_dim_pad);
 
   // Online softmax state
   float running_max = -FLT_MAX;
@@ -53,7 +59,7 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   // Each thread in the warp loads one float4 (4 floats * 32 threads = 128 dims)
   float4 vec_q = {0.0f, 0.0f, 0.0f, 0.0f};
   if (lane_id * 4 < head_dim) {
-    vec_q = reinterpret_cast<const float4 *>(Q + q_offset)[lane_id];
+    vec_q = Q_ptr[lane_id];
   }
 
   // Output Accumulator as float4
@@ -61,13 +67,13 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
   // Loop over keys (causal: k <= q)
   for (int k = 0; k <= q; ++k) {
-    const size_t k_offset = bh_offset + k * head_dim_pad;
-    // Calculate the starting dimension for this lane
+    const float4 *K_ptr = K_base + k * (head_dim_pad / 4);
+    const float4 *V_ptr = V_base + k * (head_dim_pad / 4);
 
     // 1. Vectorized Load K
     float4 k_vec = {0.0f, 0.0f, 0.0f, 0.0f};
     if (lane_id * 4 < head_dim) {
-      k_vec = reinterpret_cast<const float4 *>(K + k_offset)[lane_id];
+      k_vec = K_ptr[lane_id];
     }
 
     // Q·K dot product (Q from registers) - single float4 per lane
@@ -86,7 +92,7 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
 
     // Load V (Vectorized) and Update Accumulator
     if (lane_id * 4 < head_dim) {
-      float4 vec_v = reinterpret_cast<const float4 *>(V + k_offset)[lane_id];
+      float4 vec_v = V_ptr[lane_id];
       out_accum.x = out_accum.x * alpha + weight * vec_v.x;
       out_accum.y = out_accum.y * alpha + weight * vec_v.y;
       out_accum.z = out_accum.z * alpha + weight * vec_v.z;
@@ -105,7 +111,7 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
     out_accum.z *= inv_sum;
     out_accum.w *= inv_sum;
 
-    reinterpret_cast<float4 *>(out + q_offset)[lane_id] = out_accum;
+    out_ptr[lane_id] = out_accum;
   }
 }
 
