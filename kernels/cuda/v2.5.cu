@@ -10,19 +10,9 @@
 // ============================================================================
 // Combines optimizations from v2_smem and v2_unroll:
 //
-// 1. Shared Memory (from v2_smem):
+// 1. Shared Memory:
 //    - Cache Q vector in shared memory for efficient access
 //    - Coalesced global loads, then broadcast from smem
-//
-// 2. XOR Reduction (from v2):
-//    - All threads get reduction result directly
-//    - No separate warp_broadcast needed
-//
-// 3. Multi-Warp (from v2):
-//    - 8 warps per block (256 threads)
-//    - Better GPU occupancy
-//    - Allows scheduler to interleave warps
-//    - Hides memory latency
 //
 // 4. 4x Loop Unrolling:
 //    - In weighted sum step (Step 4)
@@ -88,6 +78,7 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   for (size_t d = lane_id; d < head_dim; d += WARP_SIZE) {
     q_shared[d] = Q[query_offset + d];
   }
+
   __syncwarp(WARP_MASK); // Ensure Q is fully loaded
 
   // ===========================================================================
