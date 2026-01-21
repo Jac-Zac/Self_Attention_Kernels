@@ -1,27 +1,11 @@
 # Exercises to do
 
-Review `static inline` functions in header files
-
-Perhpas only have one thread do the exp and also use warp level primitives for the reduction to compute the sum. And then broadcast also
-
-### Attention
-
-- Implementation: https://github.com/HicrestLaboratory/Open-VIT-bench
-- Fast softmax: https://www.youtube.com/watch?v=IpHjDoW4ffw
-- Fast matmul videos: https://www.youtube.com/@tgautam03/videos
-- Very fast blogpost: https://siboehm.com/articles/22/CUDA-MMM
-- Flash Attention V1 blogpost: https://gordicaleksa.medium.com/eli5-flash-attention-5c44017022ad
-- [CUDA notes video](https://www.youtube.com/watch?v=86FAWCzIe_4&t=32683s) also has more discussion on matrix multiply
-- [More Flash attention good video](https://www.youtube.com/watch?v=NBqHVjyDFfQ) flash attention at 1 hour 19
-
-More videos:
-
-- [How to write a fast Softmax kernel](https://www.youtube.com/watch?v=IpHjDoW4ffw)
-- Intro to GPU programming [entire playlist ep 1](https://www.youtube.com/watch?v=c8mQYGbT310)
+- Review `static inline` functions in header files
+- Change parallelisim to be each thread in a warp to iterate over the block
+- Be careful of shared memory bank conflicts
+- Additioanl improvements
 
 #### Note:
-
-Rember to pin the memory if you want to show that
 
 - Try **CuPY** to compare performances with that too and also with torch
 
