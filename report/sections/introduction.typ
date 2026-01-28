@@ -42,22 +42,18 @@ CPU benchmarks in this work are conducted on the Orfeo HPC cluster, using two di
   - *L3 Cache:* 512 MB total
   - *Max Frequency:* 2.6 GHz
 
-- *CUDA GPU (GPU partition):* GPU benchmarks are conducted primarily on #link("https://www.nvidia.com/en-us/data-center/v100/")[NVIDIA Tesla V100] accelerators.
+- *CUDA GPU (GPU partition):* GPU benchmarks in this work are conducted primarily on #link("https://jlsrf.org/index.php/lsf/article/view/186")[NVIDIA (custom) A100] accelerators; brief validation runs were performed on the NVIDIA Tesla V100.
 
-  Key specifications:
-  - *Architecture:* Volta (GV100), 5120 CUDA Cores, 640 Tensor Cores
-  - *Streaming Multiprocessors:* 80 SMs
-  - *Memory:* 32 GB HBM2, 900 GB/s bandwidth
-  - *L2 Cache:* 6 MB
-  - *Shared Memory:* Up to 96 KB per SM (configurable with L1)
-  - *Max Warps per SM:* 64 (2048 threads)
-  - *Compute Capability:* 7.0
+  Key specifications (A100):
+  - *Architecture:* Ampere (GA100)
+  - *CUDA cores:* 6912
+  - *Tensor Cores:* 432
+  - *Memory:* 64 GB HBM2e
 
   Additional profiling and testing was performed on:
-  - *NVIDIA RTX 3060* (Ampere, GA106): Used for Nsight Compute profiling due to local availability. 12 GB GDDR6, 3584 CUDA cores.
-  - *NVIDIA A100* (Ampere, GA100): Brief validation runs. 40/80 GB HBM2e, 6912 CUDA cores, 432 Tensor Cores.
 
-  The main benchmark results reported in this work are from the V100
+  - *NVIDIA RTX 3060* (Ampere, GA106): Used for Nsight Compute profiling due to local availability. 12 GB GDDR6, 3584 CUDA cores.
+  The main benchmark results reported in this work are from the A100; another V100 was used only for additional validation runs.
 
 == Scope of the implementation
 

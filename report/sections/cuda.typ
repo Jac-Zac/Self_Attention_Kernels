@@ -3,11 +3,11 @@
 This section presents the GPU implementation of causal multi-head self-attention using CUDA.
 Unlike CPU implementations where we focused on SIMD vectorization and cache locality, GPU programming requires fundamentally different thinking: we must express algorithms in terms of thousands of concurrent threads, leverage the memory hierarchy effectively, and use specialized warp-level primitives for efficient communication between threads.
 
-I develop multiple kernel versions: v0–v3 are described below; v4 and later are experimental variants whose timings are included in the results.
+ I develop multiple kernel versions: v0–v6 are implemented and v0–v3 are described below; v4 and later are experimental variants with vectorized and tiling improvements. The timings for v4+ are included in the results CSVs.
 This implementation is FP32-only and does not use Tensor Cores (fp16/mixed-precision kernels), which provide higher throughput but add implementation complexity and precision considerations.
 PyTorch's highly optimized SDPA kernels are further specialized for common head dimensions (64, 128), which partly explains the performance gap we observe.
 
-== GPU Programming Model and Architecture
+== GPU Programming (some background)
 
 Before diving into the implementations, I briefly review the GPU concepts most relevant to understanding the optimizations in this chapter.
 For a more comprehensive treatment, I recommend the #link("https://modal.com/gpu-glossary")[Modal GPU Glossary] and NVIDIA's programming guides.
@@ -100,7 +100,7 @@ The CUDA benchmarks are run with the following configuration:
 
 `batch=4`, `n_heads=32`, `seq_len=4096`, `head_dim=128`, `seed=1337`, `warmup=5`, `iters=25`.
 
-Primary GPU: NVIDIA A100 (HBM2, ~1555 GB/s, 108 SMs). Profiling was additionally performed on RTX 3060 using NVIDIA Nsight Compute.
+Primary GPU: Cineca custom NVIDIA A100 (Ampere) accelerator. Profiling on a V100 was also performed as that was another GPU at my disposal.
 
 Code: #link("https://github.com/Jac-Zac/Self_Attention_Kernels/tree/main/kernels/cuda")[github.com/Jac-Zac/Self_Attention_Kernels/tree/main/kernels/cuda].
 
@@ -108,7 +108,7 @@ Compilation uses `--use_fast_math`, which enables fast approximations for transc
 This generates Special Function Unit (SFU) instructions like `MUFU.EX2` for exponentials, providing significant speedups at the cost of slight precision loss (acceptable for attention weights).
 Note that `cudaMalloc` automatically returns 256+ byte aligned pointers, satisfying alignment requirements for vectorized loads.
 
-== Naive Baseline (v0)
+ == Naive Baseline (v0)
 
 Version #link("https://github.com/Jac-Zac/Self_Attention_Kernels/blob/main/kernels/cuda/v0.cu")[v0] is a straightforward port of the CPU algorithm to CUDA, assigning one thread per query position.
 
@@ -149,7 +149,7 @@ This baseline is extremely inefficient for several reasons:
 
 3. *Redundant memory traffic*: Each thread independently loads the same K and V rows, with no reuse across threads.
 
-The v0 kernel is approximately 46.6× slower than PyTorch's naive implementation on this workload, establishing a baseline for measuring optimization improvements.
+ The v0 kernel is approximately 46.6× slower than PyTorch's naive implementation on this workload, establishing a baseline for measuring optimization improvements (see `results/benchmark_gpu.csv`).
 
 == Warp-Level Parallelism (v1)
 
@@ -374,7 +374,7 @@ However, this approach severely limits occupancy:
 Even with smaller sequences, the shared memory requirement limits how many blocks can run concurrently on each SM, reducing the scheduler's ability to hide latency.
 The L1 cache provides automatic caching without these occupancy penalties, making it the better choice for this access pattern.
 
-== v4 — Register-Resident Q and Output Accumulators
+ == v4 — Register-Resident Q and Output Accumulators
 
 Version v4 (see `kernels/cuda/v4.cu`) builds on v3's online softmax but places both the query vector and the output accumulator entirely in registers. Key properties:
 
@@ -384,9 +384,9 @@ Version v4 (see `kernels/cuda/v4.cu`) builds on v3's online softmax but places b
 - Benefits: removes repeated Q loads and inner-loop read-modify-writes to global memory, improving arithmetic/memory balance and reducing global-memory traffic.
 - Tradeoffs: increased register pressure (per-thread arrays) can limit occupancy on some architectures; performance depends on head_dim fitting the lane-chunking scheme.
 
-On the benchmark workload v4 runs in 0.2314 s, improving on v3 but still trailing the best project variant (v4.5).
+ On the benchmark workload v4 runs in 0.2314 s, improving on v3 but still trailing the vectorized variants (v4.5, v5, v6) in our additional experiments.
 
-== v4.5 — Float4 Vectorized Online Softmax
+ == v4.5 — Float4 Vectorized Online Softmax
 
 Version v4.5 (see `kernels/cuda/v4.5.cu`) further vectorizes the critical inner loop by operating on `float4` elements:
 
@@ -394,7 +394,7 @@ Version v4.5 (see `kernels/cuda/v4.5.cu`) further vectorizes the critical inner 
 - Vectorized dot/accumulate: per-lane dot products and output updates are performed with `float4` components, reducing instruction count and memory traffic.
 - Benefits: on workloads where head_dim is a multiple of 4 (and ≤128), float4 operations reduce memory pressure and improve throughput compared to scalar register-chunking.
 
-On the benchmark workload v4.5 is the fastest project kernel at 0.1436 s — currently the best candidate for further tuning (profiling, FP16 conversion, or Tensor Core use).
+ On the primary benchmark v4.5 runs in 0.1436 s (from `results/benchmark_gpu.csv`). Additional experiments recorded a `v6` variant (shared-memory tiling) with 0.1164 s in `results/benchmark_gpu_additional.csv`, which is the best observed project kernel in our runs.
 
 == Performance Results
 

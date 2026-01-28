@@ -56,27 +56,21 @@ Key optimizations included:
 At 128 threads, the v1 kernel matches PyTorch SDPA performance and achieves 94× speedup over the single-threaded baseline.
 The multi-threaded CPU implementation represents the most mature optimization in this work, approaching production-level performance through careful attention to cache hierarchies and memory access patterns.
 
-=== CUDA GPU
+ === CUDA GPU
 
-The GPU implementation revealed both the potential and the challenges of massively parallel attention computation.
-Progressive optimizations achieved:
+ The GPU implementation revealed both the potential and the challenges of massively parallel attention computation.
+ Progressive optimizations achieved:
 
-- *Warp-level parallelism* (v1): 9× speedup through collaborative dot products and coalesced memory access
-- *Multi-warp blocks* (v2): Additional 1.4× from better occupancy and XOR-based reductions
-- *Online softmax* (v3): Eliminated workspace memory entirely, though with minimal additional speedup
+ - *Warp-level parallelism* (v1): ~8–9× speedup through collaborative dot products and coalesced memory access
+ - *Multi-warp blocks* (v2): Additional ~1.4× from better occupancy and XOR-based reductions
+ - *Online softmax* (v3): Eliminated workspace memory entirely and reduced global-memory round trips
 
-Despite these optimizations, the best CUDA kernel remains approximately 4× slower than PyTorch naive and 20× slower than PyTorch SDPA.
-This gap highlights the substantial engineering effort in production implementations: Tensor Core utilization, head-dimension specialization, sophisticated tiling strategies, and years of optimization by dedicated teams.
+The fastest kernel `v6` in runs (0.11642 s). Relative to PyTorch:
 
-== Assessment of Optimization Maturity
+ - `v6` is ≈1.11× slower than PyTorch naive (0.10525 s) in our additional runs
+ - `v6` is ≈5.6× slower than PyTorch SDPA (0.02078 s)
 
-The three implementations represent different levels of optimization maturity:
-
-*CPU single-threaded*: Reasonably well-optimized. The main remaining opportunity is more aggressive loop fusion (Flash Attention-style online softmax), but our experiments showed minimal benefit for the head dimensions tested. The implementation effectively saturates the available SIMD width.
-
-*CPU multi-threaded*: Well-optimized for the problem size tested. Strong scaling efficiency remains high up to 64 threads, with some falloff at 128 threads likely due to NUMA effects and memory bandwidth saturation. Production improvements would include NUMA-aware allocation and potentially different tiling strategies for different core counts.
-
-*CUDA GPU*: Significant room for improvement. The current implementation uses only standard CUDA cores with FP32 arithmetic, leaving Tensor Cores entirely unutilized. The memory access patterns, while coalesced within warps, do not exploit shared memory tiling for K/V reuse across warps. Closing the gap with PyTorch SDPA would require architectural changes rather than incremental optimization.
+The gap with PyTorch SDPA is significant, closing the gap further probably requires Tensor Core integration, head-dimension specialization, and more aggressive shared-memory tiling.
 
 == Future Work
 
@@ -86,13 +80,9 @@ Several directions could extend this work:
 
 The most impactful improvements for the CUDA implementation would be:
 
-1. *Shared memory tiling for K and V*: Loading blocks of K and V into shared memory for reuse across multiple warps, following the Flash Attention approach. This would address the poor L1 cache hit rates (~37%) observed in profiling.
+1. *Shared memory tiling for K and V*: Loading blocks of K and V into shared memory for reuse across multiple warps, following the Flash Attention approach. This is a work in progress inside v5 - v6. 
 
 2. *Tensor Core integration*: Leveraging `wmma` or `mma` instructions for matrix multiply-accumulate operations. This requires restructuring to operate on FP16 inputs and matrix tiles, but would provide 8-16× throughput improvement for the Q·K and attention·V computations.
-
-3. *Register blocking*: Maintaining output accumulators in registers with vectorized final stores (`float4`), reducing global memory traffic.
-
-4. *Persistent kernels*: Keeping thread blocks resident across multiple query tiles, amortizing launch overhead and improving SM utilization.
 
 === Multi-GPU Scaling
 
@@ -102,20 +92,12 @@ This overlaps communication with computation and achieves near-linear scaling.
 
 An MPI-based implementation using CUDA-aware MPI for direct GPU-to-GPU transfers would be a natural extension of this work, combining the per-GPU optimizations developed here with distributed memory parallelism.
 
-=== Alternative Attention Mechanisms
-
-Beyond optimizing standard attention, several algorithmic alternatives merit investigation:
-
-- *Grouped-Query Attention (GQA)*: Sharing K/V heads across multiple Q heads reduces memory bandwidth requirements and would require minimal kernel modifications
-- *Sliding window attention*: Restricting attention to a local window dramatically reduces complexity for very long sequences
-- *Linear attention variants*: Approximations that achieve $cal(O)(T)$ complexity, though with potential accuracy trade-offs
-
 == Concluding Remarks
 
 This project demonstrates that achieving high performance in self-attention requires deep understanding of both the algorithm and the target hardware.
 The same mathematical operation—scaled dot-product attention—demands fundamentally different implementation strategies on CPUs versus GPUs, and even within GPUs, the gap between a correct implementation and a fast one spans orders of magnitude.
 
-The educational value of this exercise lies not in matching production performance (an unrealistic goal for a single developer), but in understanding *why* certain optimizations matter and *how* hardware constraints shape algorithmic choices.
+The educational value of this exercise lies not in matching production performance, but in understanding *why* certain optimizations matter and *how* hardware constraints shape algorithmic choices.
 The progression from naive baselines to reasonably optimized kernels illustrates the key principles: vectorization and cache locality on CPUs, coalescing and occupancy on GPUs, and numerical stability everywhere.
 
 All code, benchmarks, and this report are available at #link("https://github.com/Jac-Zac/Self_Attention_Kernels")[github.com/Jac-Zac/Self_Attention_Kernels] for reference and further experimentation.
