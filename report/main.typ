@@ -65,12 +65,13 @@ The multi-threaded CPU implementation represents the most mature optimization in
  - *Multi-warp blocks* (v2): Additional ~1.4× from better occupancy and XOR-based reductions
  - *Online softmax* (v3): Eliminated workspace memory entirely and reduced global-memory round trips
 
- The fastest project kernel in additional runs is `v6` (0.116416 s). Relative to PyTorch:
+ The fastest shared memory version is `v6` (0.116416 s). Relative to PyTorch:
 
  - `v6` is ≈1.11× slower than PyTorch naive (0.105157305 s) in our additional runs
  - `v6` is ≈5.60× slower than PyTorch SDPA (0.020818206 s)
 
 The gap with PyTorch SDPA is significant, closing the gap further probably requires Tensor Core integration, head-dimension specialization, and more aggressive shared-memory tiling.
+In addition a version `v4.6` was also created to excede the performance of the naive pytorch implmentation exposing more parallelism by manually computing 2 keys at each iteration.
 
 == Future Work
 

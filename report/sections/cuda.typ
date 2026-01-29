@@ -3,7 +3,8 @@
 This section presents the GPU implementation of causal multi-head self-attention using CUDA.
 Unlike CPU implementations where we focused on SIMD vectorization and cache locality, GPU programming requires fundamentally different thinking: we must express algorithms in terms of thousands of concurrent threads, leverage the memory hierarchy effectively, and use specialized warp-level primitives for efficient communication between threads.
 
-I develop multiple kernel versions: v0–v6 are implemented and v0–v3 are described below; v4 and later are experimental variants with vectorized and tiling improvements. The repository contains `v0.cu`, `v1.cu`, `v2.cu`, `v3.cu`, `v4.cu`, `v4.5.cu`, `v4.6.cu`, `v5.cu`, `v5.5.cu`, `v6.cu`, and a future experiment `future/v5_multi_query.cu`. Timings for v4+ and additional experiment variants are included in the results CSVs.
+I develop multiple kernel versions: v0–v6 are implemented and v0–v3 are described below; v4 and later are experimental variants with vectorized and tiling improvements. 
+The repository contains `v0.cu`, `v1.cu`, `v2.cu`, `v3.cu`, `v4.cu`, `v4.5.cu`, `v4.6.cu`, `v5.cu`, `v5.5.cu`, `v6.cu`, and a future experiment `future/v5_multi_query.cu`. Timings for v4+ and additional experiment variants are included in the results CSVs.
 This implementation is FP32-only and does not use Tensor Cores (fp16/mixed-precision kernels), which provide higher throughput but add implementation complexity and precision considerations.
 PyTorch's highly optimized SDPA kernels are further specialized for common head dimensions (64, 128), which partly explains the performance gap we observe.
 

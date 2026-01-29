@@ -55,6 +55,11 @@ The following table presents detailed benchmark results for the multi-threaded C
   caption: [Multi-threaded kernel strong scaling results on AMD EPYC 9654 (Zen4, 128 cores). Benchmark configuration: batch=4, heads=32, seq_len=4096, iters=10. Speedup values are relative to v0 with 1 thread (23.660236 s).],
 ) <tab:benchmark_strong_scaling>
 
+#figure(
+  image("../figures/benchmark_multi.png", width: 95%),
+  caption: [Cineca multi threaded comparison.],
+) <fig:benchmark_multi_cineca>
+
 === CUDA Kernel Results
 
 The following table presents detailed benchmark results for the CUDA kernel implementations compared against PyTorch GPU baselines. 
