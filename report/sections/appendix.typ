@@ -57,7 +57,7 @@ The following table presents detailed benchmark results for the multi-threaded C
 
 === CUDA Kernel Results
 
-The following table presents detailed benchmark results for the CUDA kernel implementations compared against PyTorch GPU baselines. The main table below uses the primary GPU CSV `results/benchmark_gpu.csv`. An additional experiment set (`results/benchmark_gpu_additional.csv`) produced an even faster variant (`v6`) — that row is included and annotated.
+The following table presents detailed benchmark results for the CUDA kernel implementations compared against PyTorch GPU baselines. 
 
 #figure(
   table(
@@ -68,18 +68,80 @@ The following table presents detailed benchmark results for the CUDA kernel impl
     table.hline(),
     table.header([*Version*], [*Time (s)*], [*Speedup vs PyTorch naive*], [*Speedup vs PyTorch SDPA*]),
     table.hline(),
-    [PyTorch naive], [0.105225], [1.00×], [5.05×],
-    [PyTorch SDPA], [0.020841], [5.05×], [1.00×],
+    [PyTorch naive], [0.105157305], [1.00×], [5.05×],
+    [PyTorch SDPA], [0.020818206], [5.05×], [1.00×],
     table.hline(stroke: 0.5pt),
-    [v0], [4.907306], [0.02×], [0.00×],
-    [v1], [0.584282], [0.18×], [0.04×],
-    [v2], [0.426697], [0.25×], [0.05×],
-    [v3], [0.253568], [0.42×], [0.08×],
-    [v4], [0.231355], [0.46×], [0.09×],
-    [v4.5], [0.143605], [0.73×], [0.15×],
-    [v5], [0.159565], [0.66×], [0.13×],
-    [v6 (additional runs)], [0.116416], [0.90×], [0.18×],
+    [v0], [4.877098633], [0.022×], [0.004×],
+    [v1], [0.585976929], [0.180×], [0.036×],
+    [v2], [0.426904572], [0.246×], [0.049×],
+    [v3], [0.254628952], [0.413×], [0.082×],
+    [v4], [0.228657669], [0.460×], [0.091×],
+    [v4.5], [0.142099548], [0.740×], [0.146×],
     table.hline(),
   ),
-  caption: [CUDA kernel benchmark results (primary CSV: `results/benchmark_gpu.csv`). Benchmark configuration: batch=4, heads=32, seq_len=4096, head_dim=128. The `v6` row is taken from `results/benchmark_gpu_additional.csv` and represents the best observed project kernel in additional experiments. Speedups are computed as (baseline_time / version_time).],
+  caption: [CUDA kernel benchmark results (primary CSV: `results/benchmark_gpu.csv`). Benchmark configuration: batch=4, heads=32, seq_len=4096, head_dim=128. Speedups are computed as (baseline_time / version_time).],
 ) <tab:benchmark_cuda>
+
+=== Additional GPU Runs (primary A100)
+
+The repository also contains additional experimental runs on the primary A100 node. These include further vectorized and tiled variants (v4.6, v5.5, etc.). Times and speedups (baseline = PyTorch naive on A100) are shown below.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    inset: 8pt,
+    align: center,
+    stroke: none,
+    table.hline(),
+    table.header([*Version*], [*Time (s)*], [*Speedup vs PyTorch naive*], [*Speedup vs PyTorch SDPA*]),
+    table.hline(),
+    [PyTorch naive], [0.105157305], [1.00×], [5.05×],
+    [PyTorch SDPA], [0.020818206], [5.05×], [1.00×],
+    table.hline(stroke: 0.5pt),
+    [v3], [0.254628952], [0.413×], [0.082×],
+    [v4.5], [0.142099548], [0.740×], [0.146×],
+    [v4.6], [0.096846359], [1.086×], [0.215×],
+    [v5], [0.159500992], [0.659×], [0.130×],
+    [v5.5], [0.134150757], [0.784×], [0.155×],
+    [v6], [0.116500641], [0.903×], [0.179×],
+    table.hline(),
+  ),
+  caption: [Additional CUDA runs on primary A100 (experimental variants). Speedups use the A100 PyTorch naive and SDPA baselines.],
+) <tab:benchmark_cuda_additional>
+
+#figure(
+  image("../figures/benchmark_gpu_additional.png", width: 95%),
+  caption: [Additional CUDA experiment plots (primary A100). These plots visualize the extended set of kernel variants including v4.6, v5.5 and v6.],
+) <fig:benchmark_gpu_additional>
+
+=== Additional GPU Runs (Orfeo V100)
+
+Some of the best experimental kernels were also run on Orfeo's V100 node. The times below use the Orfeo PyTorch baselines measured on that machine (PyTorch naive = 0.18403 s, SDPA = 0.05404 s).
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    inset: 8pt,
+    align: center,
+    stroke: none,
+    table.hline(),
+    table.header([*Version*], [*Time (s)*], [*Speedup vs PyTorch naive (Orfeo)*], [*Speedup vs PyTorch SDPA (Orfeo)*]),
+    table.hline(),
+    [PyTorch naive], [0.184030977], [1.00×], [3.41×],
+    [PyTorch SDPA], [0.054043281], [3.41×], [1.00×],
+    table.hline(stroke: 0.5pt),
+    [v4], [0.301160126], [0.612×], [0.179×],
+    [v4.5], [0.201927185], [0.912×], [0.268×],
+    [v4.6], [0.17616983], [1.045×], [0.307×],
+    [v5], [0.275107758], [0.669×], [0.197×],
+    [v5.5], [0.226585312], [0.812×], [0.239×],
+    [v6], [0.191821213], [0.959×], [0.282×],
+    table.hline(),
+  ),
+  caption: [Additional CUDA runs on Orfeo V100. These results show similar relative behavior: v4.6 and v6 are among the fastest in these runs on V100.],
+) <tab:benchmark_orfeo_additional>
+
+#figure(
+  image("../figures/benchmark_gpu_orfeo_additional.png", width: 95%),
+  caption: [Orfeo V100 additional experiment plots (detailed).],
+) <fig:benchmark_gpu_orfeo_additional>

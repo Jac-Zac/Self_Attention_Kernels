@@ -47,6 +47,5 @@ Thread counts were varied from 1 to 128 to evaluate parallel efficiency.
   caption: [Strong scaling results for multi-threaded kernels. *Left:* speedup relative to single-threaded baseline (ideal scaling shown as dashed line). *Right:* execution time.],
 ) <fig:benchmark_strong_scaling>
 
-Detailed results are available in @tab:benchmark_strong_scaling in the appendix. The v1 kernel achieves near-ideal scaling up to 64 threads, with a speedup of approximately 48× over the single-threaded baseline (20.613019 s → 0.428888 s).
-At 128 threads, v1 is comparable to PyTorch SDPA but remains slightly slower ($approx 1.47×$ slower). Compared to naive PyTorch at 128 threads, v1 is $approx 19×$ faster.
-Additionally at 128 threads, v1 outperforms v0 by approximately $2.3x$, showcasing the effectiveness of cache-aware optimizations for large problem sizes. 
+ Detailed results are available in @tab:benchmark_strong_scaling in the appendix. The v1 kernel achieves near-ideal scaling up to 64 threads, with a speedup of approximately 48× over the single-threaded baseline (20.613019 s → 0.428888 s). These are CPU multi-threaded results measured on Orfeo's EPYC partition and are separate from the GPU timings reported in the CUDA section.
+ At 128 threads, v1 remains slightly slower than the PyTorch GPU SDPA baseline (GPU and CPU timings are not directly comparable). Compared to the single-threaded v0 baseline, v1 shows substantial improvement due to cache-aware tiling and reduced memory traffic.

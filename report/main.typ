@@ -37,13 +37,13 @@ Each implementation progressed through multiple versions, revealing the distinct
 === Single-Threaded CPU
 
 The single-threaded implementation demonstrated the critical importance of enabling compiler auto-vectorization.
-Starting from a naive baseline (v0) that was 10× slower than PyTorch's naive implementation, we achieved a 30× speedup through:
+Starting from a naive baseline (v0) that was ≈46.4× slower than PyTorch's naive implementation (v0: 4.87710 s vs PyTorch naive: 0.10516 s), we achieved a 30× speedup through:
 
 - *Loop restructuring* (v1): Respecting causal masking during computation and reordering loops to make the head dimension innermost, enabling SIMD vectorization
 - *Compiler flags* (v1_b-d): Enabling `-ffast-math` subset flags to permit associative floating-point operations, unlocking true vector accumulation with `vfmadd231ps` instructions
 - *Memory alignment* (v1_c): Padding strides to 64-byte boundaries for aligned AVX-512 loads
 
-The final single-threaded kernel (v2) achieves approximately 2.8× speedup over PyTorch naive and reaches 49% of PyTorch SDPA performance—a reasonable result for a single-threaded implementation compared to PyTorch's multi-threaded backend.
+The final single-threaded kernel (v2) achieves approximately 2.46× relative to PyTorch naive (v2: 0.42690 s) and the faster GPU kernels (v4.5: 0.14210 s) remain slower than PyTorch SDPA (0.02082 s). These comparisons highlight the difference between single-threaded CPU results and optimized GPU baselines.
 
 === Multi-Threaded CPU
 
@@ -65,10 +65,10 @@ The multi-threaded CPU implementation represents the most mature optimization in
  - *Multi-warp blocks* (v2): Additional ~1.4× from better occupancy and XOR-based reductions
  - *Online softmax* (v3): Eliminated workspace memory entirely and reduced global-memory round trips
 
-The fastest kernel `v6` in runs (0.11642 s). Relative to PyTorch:
+ The fastest project kernel in additional runs is `v6` (0.116416 s). Relative to PyTorch:
 
- - `v6` is ≈1.11× slower than PyTorch naive (0.10525 s) in our additional runs
- - `v6` is ≈5.6× slower than PyTorch SDPA (0.02078 s)
+ - `v6` is ≈1.11× slower than PyTorch naive (0.105157305 s) in our additional runs
+ - `v6` is ≈5.60× slower than PyTorch SDPA (0.020818206 s)
 
 The gap with PyTorch SDPA is significant, closing the gap further probably requires Tensor Core integration, head-dimension specialization, and more aggressive shared-memory tiling.
 

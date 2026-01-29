@@ -53,6 +53,7 @@ CPU benchmarks in this work are conducted on the Orfeo HPC cluster, using two di
   Additional profiling and testing was performed on:
 
   - *NVIDIA RTX 3060* (Ampere, GA106): Used for Nsight Compute profiling due to local availability. 12 GB GDDR6, 3584 CUDA cores.
+
   The main benchmark results reported in this work are from the A100; another V100 was used only for additional validation runs.
 
 == Scope of the implementation

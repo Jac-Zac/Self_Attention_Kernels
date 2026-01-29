@@ -3,7 +3,7 @@
 This section presents the GPU implementation of causal multi-head self-attention using CUDA.
 Unlike CPU implementations where we focused on SIMD vectorization and cache locality, GPU programming requires fundamentally different thinking: we must express algorithms in terms of thousands of concurrent threads, leverage the memory hierarchy effectively, and use specialized warp-level primitives for efficient communication between threads.
 
- I develop multiple kernel versions: v0–v6 are implemented and v0–v3 are described below; v4 and later are experimental variants with vectorized and tiling improvements. The timings for v4+ are included in the results CSVs.
+I develop multiple kernel versions: v0–v6 are implemented and v0–v3 are described below; v4 and later are experimental variants with vectorized and tiling improvements. The repository contains `v0.cu`, `v1.cu`, `v2.cu`, `v3.cu`, `v4.cu`, `v4.5.cu`, `v4.6.cu`, `v5.cu`, `v5.5.cu`, `v6.cu`, and a future experiment `future/v5_multi_query.cu`. Timings for v4+ and additional experiment variants are included in the results CSVs.
 This implementation is FP32-only and does not use Tensor Cores (fp16/mixed-precision kernels), which provide higher throughput but add implementation complexity and precision considerations.
 PyTorch's highly optimized SDPA kernels are further specialized for common head dimensions (64, 128), which partly explains the performance gap we observe.
 
@@ -149,7 +149,7 @@ This baseline is extremely inefficient for several reasons:
 
 3. *Redundant memory traffic*: Each thread independently loads the same K and V rows, with no reuse across threads.
 
- The v0 kernel is approximately 46.6× slower than PyTorch's naive implementation on this workload, establishing a baseline for measuring optimization improvements (see `results/benchmark_gpu.csv`).
+ The v0 kernel is approximately 46.4× slower than PyTorch's naive implementation on this workload (v0: 4.87710 s vs PyTorch naive: 0.10516 s); see `results/benchmark_gpu.csv`.
 
 == Warp-Level Parallelism (v1)
 
@@ -362,18 +362,6 @@ Key observations:
 The issue is that each query accesses K and V rows in sequence, but different queries (in different warps) access different subsets of rows.
 Unlike the Q·K computation which benefits from warp-parallel coalescing, the sequential V accumulation has limited reuse opportunities.
 
-=== Why Shared Memory for Attention Weights Backfired
-
-An obvious optimization might be to store the attention weights in shared memory instead of global memory.
-However, this approach severely limits occupancy:
-
-- Each warp processing query $q$ needs space for $q+1$ weights
-- With 8 warps per block and `seq_len=4096`, worst case requires $8 times 4096 times 4 = 128$ KB per block
-- V100 has only 96 KB shared memory per SM
-
-Even with smaller sequences, the shared memory requirement limits how many blocks can run concurrently on each SM, reducing the scheduler's ability to hide latency.
-The L1 cache provides automatic caching without these occupancy penalties, making it the better choice for this access pattern.
-
  == v4 — Register-Resident Q and Output Accumulators
 
 Version v4 (see `kernels/cuda/v4.cu`) builds on v3's online softmax but places both the query vector and the output accumulator entirely in registers. Key properties:
@@ -384,7 +372,7 @@ Version v4 (see `kernels/cuda/v4.cu`) builds on v3's online softmax but places b
 - Benefits: removes repeated Q loads and inner-loop read-modify-writes to global memory, improving arithmetic/memory balance and reducing global-memory traffic.
 - Tradeoffs: increased register pressure (per-thread arrays) can limit occupancy on some architectures; performance depends on head_dim fitting the lane-chunking scheme.
 
- On the benchmark workload v4 runs in 0.2314 s, improving on v3 but still trailing the vectorized variants (v4.5, v5, v6) in our additional experiments.
+  On the benchmark workload v4 runs in 0.228657669 s, improving on v3 but still trailing the vectorized variants (v4.5, v5, v6) in our additional experiments.
 
  == v4.5 — Float4 Vectorized Online Softmax
 
@@ -394,23 +382,26 @@ Version v4.5 (see `kernels/cuda/v4.5.cu`) further vectorizes the critical inner 
 - Vectorized dot/accumulate: per-lane dot products and output updates are performed with `float4` components, reducing instruction count and memory traffic.
 - Benefits: on workloads where head_dim is a multiple of 4 (and ≤128), float4 operations reduce memory pressure and improve throughput compared to scalar register-chunking.
 
- On the primary benchmark v4.5 runs in 0.1436 s (from `results/benchmark_gpu.csv`). Additional experiments recorded a `v6` variant (shared-memory tiling) with 0.1164 s in `results/benchmark_gpu_additional.csv`, which is the best observed project kernel in our runs.
+In conclusion v4.5 runs in 0.142099548s. v4.5 is $approx 1.35×$ slower than PyTorch naive (0.105157305 s) and $approx 6.83×$ slower than PyTorch SDPA (0.020818206 s). 
 
 == Performance Results
 
 #figure(
   image("../figures/benchmark_gpu.png", width: 95%),
-  caption: [CUDA kernel benchmark results. Left: speedup relative to PyTorch naive implementation. Right: speedup relative to PyTorch SDPA. Versions v0-v3 show progressive optimization; v4+ versions represent experimental variants. In this benchmark v4.5 is the best project kernel (0.1436 s), which is ≈1.36× slower than PyTorch naive (0.1052 s) and ≈6.9× slower than PyTorch SDPA (0.02084 s).],
+   caption: [CUDA kernel benchmark results. Left: speedup relative to PyTorch naive implementation. Right: speedup relative to PyTorch SDPA. 
+    v4.5 is the best kernel without fancy optimization (0.14210 s), $approx 1.35×$ slower than PyTorch naive (0.105157305 s).]
 ) <fig:benchmark_gpu>
 
-Detailed timing results are available in the appendix (see the benchmark CSV and `bench_gpu.png`).
+Detailed timing results are available in the @tab:benchmark_cuda.
 
 === Analysis
 
-The progression from v0 to v3 shows clear improvements:
-- *v0 → v1* (9.2×): Warp-level parallelism and coalesced access
-- *v1 → v2* (1.4×): XOR reduction and multi-warp blocks
-- *v2 → v3* (≈1.68×): Online softmax (zero workspace, single-pass softmax)
+  The progression from v0 to v3 shows clear improvements in approach and wall-clock time. Measured speedups (baseline = PyTorch naive) are:
+  - *v0 → v1*: v0 (4.8771 s) $->$ v1 (0.5860 s) $approx 8.32×$ reduction in time
+  - *v1 → v2*: v1 (0.5860 s) $->$ v2 (0.4269 s) $approx 1.37×$ reduction in time
+  - *v2 → v3*: v2 (0.4269 s) $->$ v3 (0.2546 s) $approx 1.68×$ reduction in time
+  - *v3 → v4*: v3 (0.2546 s) $->$ v4 (0.2287 s) $approx 1.11×$ reduction in time
+  - *v4 → v4.5*: v4 (0.2287 s) $->$ v4.5 (0.1421 s) $approx 1.61×$ reduction in time
 
 === The Gap with PyTorch SDPA
 
