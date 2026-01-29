@@ -122,7 +122,8 @@ THREAD_ENV := OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) 
     OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS)
 
 # SRUN prefix for cluster environments
-SRUN_PREFIX := $(if $(filter 1,$(USE_SRUN)),srun)
+# Treat any non-zero/non-empty USE_SRUN as truthy (so USE_SRUN=1 or USE_SRUN=yes works)
+SRUN_PREFIX := $(if $(filter-out 0,$(USE_SRUN)),srun)
 
 # Benchmark recipe: $(1)=backend, $(2)=versions, $(3)=compiler+flags, $(4)=main, $(5)=src dir, $(6)=ext, $(7)=device
 define run_benchmark
@@ -135,7 +136,7 @@ define run_benchmark
 	  	--bins $(addprefix ./cmhsa_,$(addsuffix .out,$(2))) \
 	  	$(BENCH_COMMON_ARGS) --backend $(1) --device $(7) \
 	  	$(if $(filter-out cuda,$(1)),--threads $(BENCH_THREADS)) \
-		$(if $(filter 1,$(USE_SRUN)),--use-srun) \
+		$(if $(filter-out 0,$(USE_SRUN)),--use-srun) \
 	  	$(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE))
 	@$(MAKE) clean
 endef
