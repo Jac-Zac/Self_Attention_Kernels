@@ -117,14 +117,13 @@ def run_c_binary_with_input(
     # When requesting srun, include explicit CPU allocation and binding so the
     # launched subprocess receives the intended CPU quota/affinity. Use the
     # caller-provided `threads` value for --cpus-per-task.
+
     if use_srun:
-        # Ensure threads is at least 1 for srun
-        cpus = max(1, int(threads))
         cmd = [
             "srun",
             "--export=ALL",
             "--cpus-per-task",
-            str(cpus),
+            str(max(1, threads)),
             "--cpu-bind=cores",
         ]
     else:
@@ -142,14 +141,17 @@ def run_c_binary_with_input(
 
     cmd.extend(base_cmd)
 
-    # Add threads argument for CPU backends
+    # ONLY add --threads if it's explicitly greater than 0
+    # This prevents 'single' and 'cuda' backends from receiving
+    # an 'unrecognized argument' error.
     if threads > 0:
         cmd.extend(["--threads", str(threads)])
 
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])
 
-    return subprocess.check_output(cmd, text=True)
+    # subprocess inherits the OMP_NUM_THREADS from the Makefile/Python env by default
+    return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
 
 
 def save_qkv_artifacts(

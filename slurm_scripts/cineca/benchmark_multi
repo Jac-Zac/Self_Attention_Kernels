@@ -1,0 +1,35 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=112
+#SBATCH --mem=50G
+#SBATCH --partition=dcgp_usr_prod
+#SBATCH --exclusive
+#SBATCH -A uTS25_Tornator_0
+#SBATCH -t 00:10:00
+#SBATCH --job-name=self_attention_bench
+
+module load nvhpc
+module load profile/deeplrn
+module load cineca-ai
+
+# Set OpenMP environment variables
+export OMP_PLACES=cores
+export OMP_PROC_BIND=close
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+
+echo "Running multi-threaded benchmark on Cineca"
+echo "Available CPUs: ${SLURM_CPUS_PER_TASK}"
+
+echo "=== Starting multi-threaded benchmark ==="
+echo "Benchmarking all multi-threaded kernel versions..."
+
+# Run benchmark for single-threaded backend (all versions)
+make benchmark BENCH_BACKEND=multi USE_SRUN=1 BENCH_THREADS=${OMP_NUM_THREADS} \
+  BENCH_BATCH=8 BENCH_HEADS=14 BENCH_SEQLEN=4096 BENCH_HEADDIM=128 \
+  BENCH_SEED=1337 BENCH_WARMUP=5 BENCH_ITERS=25 \
+  BENCH_OUTPUT_FILE="$RESULTS_DIR/benchmark_multi.csv"
+
+echo ""
+echo "=== Multi-threaded benchmark complete ==="
+echo "Results: $RESULTS_DIR/benchmark_multi.csv"
