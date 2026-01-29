@@ -118,12 +118,10 @@ BENCH_COMMON_ARGS := --batch $(BENCH_BATCH) --n_heads $(BENCH_HEADS) \
     --warmup $(BENCH_WARMUP) --iters $(BENCH_ITERS)
 
 # Thread environment for CPU benchmarks
-THREAD_ENV := OMP_NUM_THREADS=$(BENCH_THREADS) MKL_NUM_THREADS=$(BENCH_THREADS) \
-    OPENBLAS_NUM_THREADS=$(BENCH_THREADS) NUMEXPR_NUM_THREADS=$(BENCH_THREADS)
-
-# SRUN prefix for cluster environments
-# Treat any non-zero/non-empty USE_SRUN as truthy (so USE_SRUN=1 or USE_SRUN=yes works)
-SRUN_PREFIX := $(if $(filter-out 0,$(USE_SRUN)),srun)
+export OMP_NUM_THREADS := $(BENCH_THREADS)
+export MKL_NUM_THREADS := $(BENCH_THREADS)
+export OPENBLAS_NUM_THREADS := $(BENCH_THREADS)
+export NUMEXPR_NUM_THREADS := $(BENCH_THREADS)
 
 # Benchmark recipe: $(1)=backend, $(2)=versions, $(3)=compiler+flags, $(4)=main, $(5)=src dir, $(6)=ext, $(7)=device
 define run_benchmark
@@ -132,7 +130,7 @@ define run_benchmark
 	  $(3) -DBACKEND=\"$(1)\" -DVERSION_STR=\"$$ver\" \
 	    -o cmhsa_$$ver.out $(4) $(5)/$$ver$(6); \
 	done
-  	$(THREAD_ENV) python3 python_src/benchmark.py \
+  	python3 python_src/benchmark.py \
 	  	--bins $(addprefix ./cmhsa_,$(addsuffix .out,$(2))) \
 	  	$(BENCH_COMMON_ARGS) --backend $(1) --device $(7) \
 	  	$(if $(filter-out cuda,$(1)),--threads $(BENCH_THREADS)) \
