@@ -137,6 +137,7 @@ def run_kernel(
     iters: int,
     use_srun: bool,
     device: str,
+    threads: int = 1,
 ) -> tuple[torch.Tensor, float, str]:
     """Run a C++ kernel and return (output, time, raw_output)."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -150,6 +151,7 @@ def run_kernel(
             input_dir=input_dir,
             warmup=warmup,
             iters=iters,
+            threads=threads,
             validate_outdir=output_dir,
             use_srun=use_srun,
         )
@@ -186,7 +188,15 @@ def main():
         # Run first binary to get timing and extract GPU info if needed
         first_bin = args.bins[0]
         first_out_c, first_time, c_output = run_kernel(
-            first_bin, Q, K, V, args.warmup, args.iters, args.use_srun, args.device
+            first_bin,
+            Q,
+            K,
+            V,
+            args.warmup,
+            args.iters,
+            args.use_srun,
+            args.device,
+            threads,
         )
 
         if is_cuda and not gpu_info:
@@ -243,7 +253,15 @@ def main():
         for bin_path in args.bins[1:]:
             version = extract_version(bin_path)
             out_c, c_time, _ = run_kernel(
-                bin_path, Q, K, V, args.warmup, args.iters, args.use_srun, args.device
+                bin_path,
+                Q,
+                K,
+                V,
+                args.warmup,
+                args.iters,
+                args.use_srun,
+                args.device,
+                threads,
             )
 
             assert torch.allclose(

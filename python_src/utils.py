@@ -4,6 +4,7 @@ Shared utilities for CMHSA validation and benchmarking.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -108,11 +109,26 @@ def run_c_binary_with_input(
     input_dir: Path,
     warmup: int = 0,
     iters: int = 1,
+    threads: int = 1,
     validate_outdir: Path | None = None,
     use_srun: bool = False,
 ) -> str:
     """Run the C/CUDA binary with Q,K,V loaded from input_dir. Returns stdout."""
-    cmd = ["srun"] if use_srun else []
+    # When requesting srun, include explicit CPU allocation and binding so the
+    # launched subprocess receives the intended CPU quota/affinity. Use the
+    # caller-provided `threads` value for --cpus-per-task.
+    if use_srun:
+        # Ensure threads is at least 1 for srun
+        cpus = max(1, int(threads))
+        cmd = [
+            "srun",
+            "--export=ALL",
+            "--cpus-per-task",
+            str(cpus),
+            "--cpu-bind=cores",
+        ]
+    else:
+        cmd = []
 
     base_cmd = [
         bin_path,
@@ -125,6 +141,10 @@ def run_c_binary_with_input(
     ]
 
     cmd.extend(base_cmd)
+
+    # Add threads argument for CPU backends
+    if threads > 0:
+        cmd.extend(["--threads", str(threads)])
 
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])

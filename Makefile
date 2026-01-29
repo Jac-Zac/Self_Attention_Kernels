@@ -131,11 +131,12 @@ define run_benchmark
 	  $(3) -DBACKEND=\"$(1)\" -DVERSION_STR=\"$$ver\" \
 	    -o cmhsa_$$ver.out $(4) $(5)/$$ver$(6); \
 	done
-	$(THREAD_ENV) $(SRUN_PREFIX) python3 python_src/benchmark.py \
-	  --bins $(addprefix ./cmhsa_,$(addsuffix .out,$(2))) \
-	  $(BENCH_COMMON_ARGS) --backend $(1) --device $(7) \
-	  $(if $(filter-out cuda,$(1)),--threads $(BENCH_THREADS)) \
-	  $(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE))
+  	$(THREAD_ENV) python3 python_src/benchmark.py \
+	  	--bins $(addprefix ./cmhsa_,$(addsuffix .out,$(2))) \
+	  	$(BENCH_COMMON_ARGS) --backend $(1) --device $(7) \
+	  	$(if $(filter-out cuda,$(1)),--threads $(BENCH_THREADS)) \
+		$(if $(filter 1,$(USE_SRUN)),--use-srun) \
+	  	$(if $(BENCH_OUTPUT_FILE),--output $(BENCH_OUTPUT_FILE))
 	@$(MAKE) clean
 endef
 
