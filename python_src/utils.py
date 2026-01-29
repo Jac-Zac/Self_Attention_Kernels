@@ -113,17 +113,23 @@ def run_c_binary_with_input(
     validate_outdir: Path | None = None,
     use_srun: bool = False,
 ) -> str:
-    """Run the C/CUDA binary with Q,K,V loaded from input_dir. Returns stdout."""
-    # When requesting srun, include explicit CPU allocation and binding so the
-    # launched subprocess receives the intended CPU quota/affinity. Use the
-    # caller-provided `threads` value for --cpus-per-task.
+    # 1. Prepare the environment for this specific run
+    # This is the most critical part: PyTorch's set_num_threads only affects PyTorch.
+    # We must tell the C/OpenMP runtime how many threads to use via environment vars.
+    env = os.environ.copy()
+    num_threads_str = str(max(1, threads))
+    env["OMP_NUM_THREADS"] = num_threads_str
+    env["MKL_NUM_THREADS"] = num_threads_str
+    env["OPENBLAS_NUM_THREADS"] = num_threads_str
+    env["VECLIB_MAXIMUM_THREADS"] = num_threads_str
+    env["NUMEXPR_NUM_THREADS"] = num_threads_str
 
     if use_srun:
         cmd = [
             "srun",
             "--export=ALL",
             "--cpus-per-task",
-            str(max(1, threads)),
+            num_threads_str,
             "--cpu-bind=cores",
         ]
     else:
@@ -138,20 +144,18 @@ def run_c_binary_with_input(
         "--iters",
         str(iters),
     ]
-
     cmd.extend(base_cmd)
 
-    # ONLY add --threads if it's explicitly greater than 0
-    # This prevents 'single' and 'cuda' backends from receiving
-    # an 'unrecognized argument' error.
+    # Note: Only pass --threads if your C code actually parses it to call omp_set_num_threads()
+    # If your C code only relies on the environment, the 'env' dict above handles it.
     if threads > 0:
-        cmd.extend(["--threads", str(threads)])
+        cmd.extend(["--threads", num_threads_str])
 
     if validate_outdir is not None:
         cmd.extend(["--validate-outdir", str(validate_outdir)])
 
-    # subprocess inherits the OMP_NUM_THREADS from the Makefile/Python env by default
-    return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+    # 2. Pass the custom env to the subprocess
+    return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT, env=env)
 
 
 def save_qkv_artifacts(
