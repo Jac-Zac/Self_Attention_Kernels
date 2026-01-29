@@ -80,3 +80,6 @@ main.cpp              # CPU entry point
 main.cu               # CUDA entry point
 Makefile              # Build targets
 ```
+
+> [!WARNING]
+> TODO: The benchmkaring for multi threading is currently not working correctly with slurm checkout to this branch for the reference results: cf9f690
