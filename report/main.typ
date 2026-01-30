@@ -37,13 +37,13 @@ Each implementation progressed through multiple versions, revealing the distinct
 === Single-Threaded CPU
 
 The single-threaded implementation demonstrated the critical importance of enabling compiler auto-vectorization.
-Starting from a naive baseline (v0) that was ≈46.4× slower than PyTorch's naive implementation (v0: 4.87710 s vs PyTorch naive: 0.10516 s), we achieved a 30× speedup through:
+Starting from a naive baseline (v0) that was ≈10.7× slower than PyTorch's naive implementation (v0: 11.1723 s vs PyTorch naive: 1.0483 s), we achieved a 30× speedup through:
 
 - *Loop restructuring* (v1): Respecting causal masking during computation and reordering loops to make the head dimension innermost, enabling SIMD vectorization
-- *Compiler flags* (v1_b-d): Enabling `-ffast-math` subset flags to permit associative floating-point operations, unlocking true vector accumulation with `vfmadd231ps` instructions
-- *Memory alignment* (v1_c): Padding strides to 64-byte boundaries for aligned AVX-512 loads
+- *Compiler flags* (v1_b-d): Enabling `-ffast-math` subset flags to permit associative floating-point operations, unlocking true vector accumulation with `vfmadd231ps` instructions (3.5× gain)
+- *Memory alignment* (v1_c): Padding strides to 64-byte boundaries for aligned AVX-512 loads (30% improvement)
 
-The final single-threaded kernel (v2) achieves approximately 2.46× relative to PyTorch naive (v2: 0.42690 s) and the faster GPU kernels (v4.5: 0.14210 s) remain slower than PyTorch SDPA (0.02082 s). These comparisons highlight the difference between single-threaded CPU results and optimized GPU baselines.
+The final single-threaded kernel (v2) achieves 2.83× speedup relative to PyTorch naive (0.3706 s vs 1.0483 s), but remains about 2× slower than PyTorch's SDPA implementation.
 
 === Multi-Threaded CPU
 
@@ -53,8 +53,7 @@ Key optimizations included:
 - *Query tiling* (v1): Processing tiles of 32 queries together, allowing K and V rows to be loaded once per tile rather than once per query
 - *Cache-aware blocking*: Ensuring tiles fit in L3 cache to maximize data reuse
 
-At 128 threads, the v1 kernel matches PyTorch SDPA performance and achieves 94× speedup over the single-threaded baseline.
-The multi-threaded CPU implementation represents the most mature optimization in this work, approaching production-level performance through careful attention to cache hierarchies and memory access patterns.
+At 128 threads, v1 delivers a 2.3× speedup over the tiled v0 baseline (0.50s → 0.22s), achieves near-ideal scaling, and approaches PyTorch SDPA performance.
 
  === CUDA GPU
 
@@ -65,13 +64,7 @@ The multi-threaded CPU implementation represents the most mature optimization in
  - *Multi-warp blocks* (v2): Additional ~1.4× from better occupancy and XOR-based reductions
  - *Online softmax* (v3): Eliminated workspace memory entirely and reduced global-memory round trips
 
- The fastest shared memory version is `v6` (0.116416 s). Relative to PyTorch:
-
- - `v6` is ≈1.11× slower than PyTorch naive (0.105157305 s) in our additional runs
- - `v6` is ≈5.60× slower than PyTorch SDPA (0.020818206 s)
-
-The gap with PyTorch SDPA is significant, closing the gap further probably requires Tensor Core integration, head-dimension specialization, and more aggressive shared-memory tiling.
-In addition a version `v4.6` was also created to excede the performance of the naive pytorch implmentation exposing more parallelism by manually computing 2 keys at each iteration.
+The gap with PyTorch SDPA is significant; closing it further probably requires Tensor Core integration, head-dimension specialization, and more aggressive shared-memory tiling.
 
 == Future Work
 

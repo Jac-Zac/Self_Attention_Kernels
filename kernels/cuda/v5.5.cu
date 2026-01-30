@@ -79,6 +79,8 @@ __global__ void cmhsa_forward_kernel(const float *RESTRICT Q,
   float4 vec_q = {0.0f, 0.0f, 0.0f, 0.0f};
   if (valid_q && lane_id < head_dim_f4) {
     // Use read-only cache for Q loads to improve global memory throughput
+    // NOTE: This is mostly already done by the compiler due to the const
+    // qualifieres I placed on them but still and inteteresting thing
     vec_q = __ldg(&Q4_ptr[lane_id]);
   }
 

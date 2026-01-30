@@ -1,6 +1,7 @@
 = Background and Theory
 
-This section explains the mathematical foundations of causal multi-head self-attention, used in modern Transformers.
+To understand how to optimize attention, we first need to understand how it works mathematically. 
+This section covers the foundations of causal multi-head self-attention—the variant used in modern autoregressive Transformers.
 
 == Scaled Dot-Product Attention and Self-Attention
 
@@ -9,7 +10,7 @@ Given query matrix $bold(Q) in bb(R)^(T times d_k)$, key matrix $bold(K) in bb(R
 
 $ bold(A) = "softmax"((bold(Q) bold(K)^top)/sqrt(d_k)) bold(V) $ <eq:attention>
 
-The computation proceeds in three stages: (1) *similarity computation* $bold(S) = bold(Q) bold(K)^top$ computes pairwise token relationships, (2) *normalization* via $"softmax"(bold(S) "/" sqrt(d_k))$ converts similarities to probability distributions, and (3) *aggregation* computes weighted combinations of values. The scaling factor $1\/sqrt(d_k)$ prevents dot products from growing as $cal(O)(sqrt(d_k))$ in magnitude @vaswani2017attention.
+Breaking this down into steps: (1) we first compute *similarity scores* via $bold(S) = bold(Q) bold(K)^top$, which gives us pairwise relationships between all tokens; (2) we *normalize* these via $"softmax"(bold(S) "/" sqrt(d_k))$ to get a proper probability distribution; and (3) we *aggregate* by taking weighted combinations of the value vectors. The scaling factor $1\/sqrt(d_k)$ prevents dot products from growing as $cal(O)(sqrt(d_k))$ in magnitude @vaswani2017attention.
 
 #figure(
   grid(

@@ -5,6 +5,9 @@
 #include <cuda_runtime.h>
 #include <math.h>
 
+// NOTE: The version in the benchmark didn't actually do warp reduction in this
+// but instead does it in the later version
+
 // Changes from v0:
 // 1. Warp-level parallelism for dot products:
 //    - Each warp (32 threads) collaboratively computes Q·K dot products

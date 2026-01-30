@@ -150,3 +150,24 @@ Some of the best experimental kernels were also run on Orfeo's V100 node. The ti
   image("../figures/benchmark_gpu_orfeo_additional.png", width: 95%),
   caption: [Orfeo V100 additional experiment plots (detailed).],
 ) <fig:benchmark_gpu_orfeo_additional>
+
+=== Multi-Threaded CPU Summary
+
+The multi-threaded v1 kernel achieves optimal performance at 128 threads, delivering a 2.3× speedup over the tiled v0 baseline (0.50s → 0.22s) and approaching PyTorch SDPA performance.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    inset: 8pt,
+    align: center,
+    stroke: none,
+    table.hline(),
+    table.header([*Kernel*], [*Threads*], [*Time (s)*], [*vs PyTorch SDPA*]),
+    table.hline(),
+    [v0], [128], [0.50], [3.3× slower],
+    [v1], [128], [0.22], [1.5× slower],
+    [PyTorch SDPA], [128], [0.15], [1.00×],
+    table.hline(),
+  ),
+  caption: [Multi-threaded CPU summary at 128 threads on AMD EPYC 9654 (Zen4, 128 cores). v1's query tiling delivers 2.3× improvement over v0.],
+) <tab:multithread_summary>

@@ -16,8 +16,8 @@ cmhsa_forward_kernel(const float *RESTRICT Q, const float *RESTRICT K,
   // x dimension: queries/seq_len (supports up to 1024 threads)
   // y dimension: heads
   // z dimension: batch (typically small, so z's 64-thread limit is fine)
-  int h = blockIdx.y * blockDim.y + threadIdx.y;
   int b = blockIdx.z * blockDim.z + threadIdx.z;
+  int h = blockIdx.y * blockDim.y + threadIdx.y;
   int q = blockIdx.x * blockDim.x + threadIdx.x;
 
   const size_t batch_size = dims.batch;

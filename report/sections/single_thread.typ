@@ -28,19 +28,20 @@ The implementation follows the following steps:
 
 == Improved kernel structure (v1)
 
-Version #link("https://github.com/Jac-Zac/Self_Attention_Kernels/blob/main/kernels/single_thread/v1.cpp")[v1] is an improvement on the previous version which has the 2 following properities:
+Version #link("https://github.com/Jac-Zac/Self_Attention_Kernels/blob/main/kernels/single_thread/v1.cpp")[v1] is an improvement on the previous version which has the 2 following properties:
 
 1. Respecting the causal mask during computation (not computing masked values)
 2. Changing the loop order in the output computation to improve cache locality (making `head_dim` the innermost loop to also allows for better vectorization)
 
-Benchmarks for *v1* are split into the following subversions to isolate the impact of different optimizations:
+Benchmarks for *v1* are split into four subversions, each isolating one optimization:
 
-1. *v1_a:* uses no additional compilation flags beyond `-O3 -march=native`
-2. *v1_b:* enables selective `-ffast-math` flags: `-fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros` to allow for autovectorization to actually take full effect
-3. *v1_c:* pads `head_dim` to ensure proper alignment, this (padding is retained in all subsequent versions)
-4. *v1_d:* enables full `-ffast-math`, which allows vectorization of functions like `expf`
+- *v1_a:* Baseline with `-O3 -march=native`. The compiler reports vectorization, but actually performs scalar reductions inside loops—AVX-512 loads 16 floats, then immediately reduces with 16 scalar adds. Still achieves 5× speedup over v0.
 
-The `v1_a` implementation already provides roughly a 5x speedup compared to v0. Moving from v1_a to v1_b yields an additional 3.5x gain, while v1_c provides a further 30% improvement through aligned memory access. Enabling full `-ffast-math` in v1_d adds another 20% on top of these gains.
+- *v1_b:* Adds `-fassociative-math -fno-trapping-math -ffinite-math-only -fno-signed-zeros`. The critical unlock: IEEE 754 strict associativity was preventing GCC from keeping partial sums in vector registers. With associative math, the compiler generates `vfmadd231ps` instructions. 3.5× additional gain.
+
+- *v1_c:* Pads head dimension stride to 64-byte boundaries. Ensures every row starts on a cache line. ~30% improvement.
+
+- *v1_d:* Full `-ffast-math`, enabling vectorized `expf` via libmvec. Another ~20%.
 
 === Deeper Analysis
 
@@ -175,7 +176,7 @@ Versions v2 explore additional optimizations with diminishing returns on the sin
 
 - *v2* fuses the softmax computation phases (max-finding, exp, normalization) into tighter loops to reduce memory traffic. However, since `head_dim` is small (128) and fits in L1 cache, the measured improvement is negligible.
 
-Moreover additional versions where tested but had no improvement:
+Moreover additional versions were tested but had no improvement:
 
 - *v3* tried adding explicit `#pragma omp simd` hints to guide vectorization. With `-ffast-math` already enabled.
 

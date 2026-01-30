@@ -154,7 +154,7 @@ This baseline is extremely inefficient for several reasons:
 
 == Warp-Level Parallelism (v1)
 
-Version #link("https://github.com/Jac-Zac/Self_Attention_Kernels/blob/main/kernels/cuda/v1.cu")[v1] introduces the most important optimization: using an entire warp (32 threads) to collaboratively compute attention for a single query position.
+With v0 establishing how *not* to use a GPU, v1 tackles the most important optimization: using an entire warp (32 threads) to collaboratively compute attention for a single query position.
 
 === Collaborative Dot Products
 
@@ -228,7 +228,7 @@ V1 achieves approximately 8.4× speedup over v0, primarily from the warp-paralle
 
 == XOR Reduction and Multi-Warp Blocks (v2)
 
-Version #link("https://github.com/Jac-Zac/Self_Attention_Kernels/blob/main/kernels/cuda/v2.cu")[v2] introduces two refinements: XOR-based reductions and multiple warps per block.
+v2 makes two refinements to the v1 approach: XOR-based reductions that eliminate the need for explicit broadcasts, and packing multiple warps into each block for better occupancy.
 
 === XOR vs Shuffle-Down Reduction
 
@@ -279,7 +279,7 @@ V2 achieves approximately 1.37× additional speedup over v1.
 
 == Online Softmax - Flash Attention Style (v3)
 
-Version #link("https://github.com/Jac-Zac/Self_Attention_Kernels/blob/main/kernels/cuda/v3.cu")[v3] eliminates the attention weights workspace entirely using an *online softmax* algorithm, inspired by Flash Attention.
+v3 eliminates the attention weights workspace entirely using an *online softmax* algorithm, inspired by Flash Attention.
 
 === The Workspace Problem
 
@@ -293,7 +293,7 @@ For long sequences, workspace size becomes prohibitive, and the repeated global 
 
 === Online Softmax Algorithm
 
-The key insight is that softmax can be computed *incrementally* as we iterate through keys, without storing all scores first.
+Here's the trick: we don't need to store all scores to compute softmax. Instead, we can compute it *incrementally* as we iterate through keys, maintaining just a running max and sum.
 We maintain running statistics that are updated with each new score:
 
 ```cpp
@@ -367,7 +367,7 @@ Unlike the Q·K computation which benefits from warp-parallel coalescing, the se
 
 Version v4 (see `kernels/cuda/v4.cu`) builds on v3's online softmax but places both the query vector and the output accumulator entirely in registers. Key properties:
 
-- Query in registers: each lane preloads up to 4 contiguous Q elements into per-lane registers (`q_r[]`) so the inner loop avoids reloading Q from memory.
+- Query in registers: each lane preloads up to 4 strided Q elements (at positions `lane_id + i*32`) into per-lane registers (`q_r[]`) so the inner loop avoids reloading Q from memory. This strided pattern enables coalesced loads across the warp.
 - Register accumulator: the per-lane output (`out_accum[]`) is accumulated in registers and written once to global memory after normalization.
 - Support: head_dim up to 128 using a per-lane chunking strategy (4 elements per lane × 32 lanes).
 - Benefits: removes repeated Q loads and inner-loop read-modify-writes to global memory, improving arithmetic/memory balance and reducing global-memory traffic.
@@ -384,6 +384,26 @@ Version v4.5 (see `kernels/cuda/v4.5.cu`) further vectorizes the critical inner 
 - Benefits: on workloads where head_dim is a multiple of 4 (and ≤128), float4 operations reduce memory pressure and improve throughput compared to scalar register-chunking.
 
 In conclusion v4.5 runs in 0.142099548s. v4.5 is $approx 1.35×$ slower than PyTorch naive (0.105157305 s) and $approx 6.83×$ slower than PyTorch SDPA (0.020818206 s). 
+
+== Additional Experimental Versions
+
+Beyond v4.5, several experimental versions explored different optimization directions:
+
+=== v4.6 — Dual-Key Processing
+
+v4.6 (see `kernels/cuda/v4.6.cu`) processes *two keys per loop iteration* instead of one. By computing scores for key positions $k$ and $k+1$ together, we halve the number of warp reductions and loop iterations. This exposes more instruction-level parallelism and better amortizes the softmax update overhead. Result: 0.097s, achieving a 1.09× speedup over PyTorch naive—our first kernel to approach parity.
+
+=== v5 — Shared Memory Tiling (First Attempt)
+
+v5 loads blocks of K and V into shared memory for reuse across warps, following the Flash Attention approach. However, this version added synchronization overhead (`__syncthreads()`) within warps to coordinate shared memory access. At sequence length 4096, the sync cost outweighed the benefit: v5 runs in 0.160s, actually *slower* than v4.5's 0.142s. This demonstrates that optimization strategies don't always translate directly—shared memory helps when you can amortize the sync cost across many accesses, but our workload didn't hit that threshold.
+
+=== v5.5 — Tuning the Tiling Strategy
+
+v5.5 adjusted the shared memory tiling parameters and added float4 vectorized loads from v4.5. Running in 0.134s, it improved on v5 but still trailed v4.5. The fundamental issue remained: the overhead of coordinating shared memory access across warps wasn't paying off at this sequence length.
+
+=== v6 — Optimized Shared Memory Tiling
+
+v6 combines shared memory tiling with careful attention to occupancy and register pressure. By optimizing the tile size and minimizing synchronization points, v6 achieves 0.117 seconds—our best CUDA result. While still 5.6× slower than PyTorch SDPA, v6 demonstrates that shared memory *can* help when tuned carefully, though the gap with production kernels highlights how much optimization remains in areas like Tensor Core utilization.
 
 == Performance Results
 

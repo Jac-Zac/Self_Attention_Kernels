@@ -6,6 +6,8 @@
 #include <math.h>
 
 // Adding direct float4 operation decrease memory pressure
+// Each thread loads a consecuitive chunk of 4 elements in one load
+// For all the threads in the warp ni parallel
 
 #define WARP_SIZE 32
 #define WARPS_PER_BLOCK 8
